@@ -1,0 +1,484 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>STM32 RC Controller - Web BLE Edition</title>
+    <style>
+        :root { --primary: #007bff; --bg: #f4f4f9; --text: #333; }
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 0; padding: 0; background: var(--bg); color: var(--text); user-select: none; touch-action: manipulation; }
+        
+        /* Navbar & Tabs */
+        .header { background: #222; color: white; padding: 15px; text-align: center; }
+        .tabs { display: flex; background: #333; }
+        .tab { flex: 1; padding: 15px; text-align: center; color: white; cursor: pointer; text-transform: uppercase; font-weight: bold; }
+        .tab.active { background: var(--primary); }
+        
+        /* Containers */
+        .container { padding: 20px; display: none; }
+        .container.active { display: block; }
+        
+        /* Buttons General */
+        button { background: var(--primary); color: white; border: none; padding: 12px 20px; border-radius: 8px; font-size: 16px; cursor: pointer; font-weight: bold; width: 100%; margin-bottom: 10px; }
+        button.danger { background: #dc3545; }
+        button.success { background: #28a745; }
+        button.warning { background: #ffc107; color: #333; }
+        button.action-btn { background: #6c757d; font-size: 14px; padding: 10px;}
+        button:active { opacity: 0.8; }
+        
+        /* Telemetry Panel */
+        .telemetry { background: white; padding: 15px; border-radius: 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); margin-bottom: 20px; display: flex; justify-content: space-between; text-align: center; }
+        .telemetry div h3 { margin: 0; font-size: 24px; color: var(--primary); }
+        .telemetry div p { margin: 5px 0 0; font-size: 12px; color: #666; text-transform: uppercase; font-weight: bold; }
+
+        /* Live Data Bar in Settings */
+        .live-bar { background: #222; color: #0f0; padding: 10px; border-radius: 8px; margin-bottom: 15px; text-align: center; font-family: monospace; font-size: 16px; font-weight: bold; box-shadow: inset 0 0 10px #000; }
+        .live-bar span { margin: 0 10px; }
+
+        /* THEME 1: Split Controls (Kiri Kanan) */
+        .split-controls { display: flex; justify-content: space-between; margin-top: 30px; }
+        .control-group { display: flex; flex-direction: column; gap: 20px; width: 45%; }
+        .control-group.row { flex-direction: row; align-items: center; justify-content: center; margin-top: 40px; }
+        
+        .btn-drive, .btn-steer { height: 80px; font-size: 24px; border-radius: 15px; background: #ddd; color: #333; touch-action: none; width: 100%; }
+        .btn-drive:active, .btn-steer:active { background: var(--primary); color: white; }
+
+        /* THEME 2: Joystick */
+        .joystick-wrapper { display: none; margin-top: 40px; text-align: center; }
+        .joystick-base { width: 200px; height: 200px; background: #ccc; border-radius: 50%; position: relative; margin: 0 auto; box-shadow: inset 0 0 15px rgba(0,0,0,0.2); touch-action: none; }
+        .joystick-stick { width: 80px; height: 80px; background: var(--primary); border-radius: 50%; position: absolute; top: 60px; left: 60px; box-shadow: 0 5px 15px rgba(0,0,0,0.3); pointer-events: none; transition: transform 0.1s; }
+
+        /* Settings Grid */
+        .settings-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 20px; }
+        .form-group { background: white; padding: 10px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
+        .form-group label { display: block; font-size: 12px; font-weight: bold; color: #555; margin-bottom: 5px; }
+        .input-group { display: flex; gap: 5px; }
+        .input-group input, .input-group select { flex: 1; padding: 8px; border: 1px solid #ccc; border-radius: 5px; font-size: 14px; width: 100%; box-sizing: border-box; background: white; }
+        .btn-small { width: auto; background: #17a2b8; padding: 8px 12px; margin: 0; font-size: 12px; border-radius: 5px;}
+        
+        .section-title { grid-column: span 2; font-size: 14px; color: var(--primary); font-weight: bold; border-bottom: 2px solid #ccc; padding-bottom: 5px; margin-top: 10px; }
+
+        #log { font-size: 12px; color: #888; text-align: center; margin-top: 10px; }
+    </style>
+</head>
+<body>
+
+    <div class="header">
+        <h2 style="margin:0;">RC STM32 <span id="bt-status">🔴</span></h2>
+        <div id="log">Status: Menunggu Koneksi BLE...</div>
+    </div>
+
+    <div class="tabs">
+        <div class="tab active" onclick="switchTab('remote')">Remote</div>
+        <div class="tab" onclick="switchTab('settings')">Settings</div>
+    </div>
+
+    <div id="remote" class="container active">
+        <button id="btn-connect" class="success" onclick="connectBT()">Hubungkan Modul BLE</button>
+        <button id="btn-disconnect" class="danger" style="display:none;" onclick="disconnectBT()">Putuskan Koneksi</button>
+        
+        <div class="telemetry">
+            <div><h3 id="tel-vbat">0.0V</h3><p>Baterai</p></div>
+            <div><h3 id="tel-roda">0</h3><p>ADC Roda</p></div>
+            <div><h3 id="tel-stir">0</h3><p>ADC Stir</p></div>
+        </div>
+
+        <button id="btn-switch-theme" class="warning" onclick="toggleTheme()">🔄 Ganti ke Mode Analog Joystick</button>
+
+        <div id="theme-buttons" class="split-controls">
+            <div class="control-group">
+                <button class="btn-drive" data-cmd="maju" data-release="release_drive">▲ Maju</button>
+                <button class="btn-drive" data-cmd="mundur" data-release="release_drive">▼ Mundur</button>
+            </div>
+            
+            <div class="control-group row">
+                <button class="btn-steer" data-cmd="kiri" data-release="release_steer">◄ Kiri</button>
+                <button class="btn-steer" data-cmd="kanan" data-release="release_steer">Kanan ►</button>
+            </div>
+        </div>
+
+        <div id="theme-joystick" class="joystick-wrapper">
+            <div class="joystick-base" id="j-base">
+                <div class="joystick-stick" id="j-stick"></div>
+            </div>
+            <p style="color:#666; font-size:14px; margin-top:20px;">Tarik lingkaran ke segala arah</p>
+        </div>
+
+    </div>
+
+    <div id="settings" class="container">
+        
+        <div class="live-bar">
+            <span>🛞 Roda: <span id="set-live-roda">0</span></span> | 
+            <span>🕹️ Stir: <span id="set-live-stir">0</span></span>
+        </div>
+
+        <button class="action-btn" onclick="sendCmd('get_params')">📥 Baca Parameter dari STM32</button>
+        
+        <div class="settings-grid">
+            
+            <div class="section-title">Limit & Posisi Roda (A1)</div>
+            <div class="form-group"><label>Limit Kiri (lk)</label>
+                <div class="input-group"><input type="number" id="p_lk"><button class="btn-small" onclick="grabADC('p_lk', 'roda')">GET</button></div>
+            </div>
+            <div class="form-group"><label>Limit Kanan (rk)</label>
+                <div class="input-group"><input type="number" id="p_rk"><button class="btn-small" onclick="grabADC('p_rk', 'roda')">GET</button></div>
+            </div>
+            <div class="form-group"><label>Center Roda (mid)</label>
+                <div class="input-group"><input type="number" id="p_mid"><button class="btn-small" onclick="grabADC('p_mid', 'roda')">GET</button></div>
+            </div>
+            <div class="form-group"><label>Deadzone Roda (dz)</label>
+                <div class="input-group"><input type="number" id="p_dz"></div>
+            </div>
+
+            <div class="section-title">Posisi Setir Manual (A0)</div>
+            <div class="form-group"><label>Pot Stir Kiri (pk)</label>
+                <div class="input-group"><input type="number" id="p_pk"><button class="btn-small" onclick="grabADC('p_pk', 'stir')">GET</button></div>
+            </div>
+            <div class="form-group"><label>Pot Stir Kanan (pr)</label>
+                <div class="input-group"><input type="number" id="p_pr"><button class="btn-small" onclick="grabADC('p_pr', 'stir')">GET</button></div>
+            </div>
+            <div class="form-group"><label>Stir Gap % (zgp)</label>
+                <div class="input-group"><input type="number" id="p_zgp"></div>
+            </div>
+            <div class="form-group"><label>Deadzone Man (dzm)</label>
+                <div class="input-group"><input type="number" id="p_dzm"></div>
+            </div>
+
+            <div class="section-title">Tenaga & Motor Controller</div>
+            <div class="form-group"><label>Speed PWM Max (spm)</label>
+                <div class="input-group"><input type="number" id="p_spm"></div>
+            </div>
+            <div class="form-group"><label>Start PWM Hentakan (sta)</label>
+                <div class="input-group"><input type="number" id="p_sta"></div>
+            </div>
+            <div class="form-group"><label>Tenaga Belok PWM (bel)</label>
+                <div class="input-group"><input type="number" id="p_bel"></div>
+            </div>
+            <div class="form-group"><label>Waktu Akselerasi ms (acc)</label>
+                <div class="input-group"><input type="number" id="p_acc"></div>
+            </div>
+
+            <div class="section-title">Safety & Mode</div>
+            <div class="form-group"><label>Stall Timeout ms (stt)</label>
+                <div class="input-group"><input type="number" id="p_stt" placeholder="Cth: 500"></div>
+            </div>
+            <div class="form-group"><label>Auto Center (ac)</label>
+                <div class="input-group">
+                    <select id="p_ac">
+                        <option value="0">OFF</option>
+                        <option value="1">ON</option>
+                    </select>
+                </div>
+            </div>
+            <div class="form-group"><label>Manual Mode Pedal (man)</label>
+                <div class="input-group">
+                    <select id="p_man">
+                        <option value="0">OFF</option>
+                        <option value="1">ON</option>
+                    </select>
+                </div>
+            </div>
+        </div>
+        
+        <button class="danger" style="padding: 15px;" onclick="saveParams()">💾 SIMPAN PARAMETER KE EEPROM</button>
+    </div>
+
+    <script>
+        // ==== WEB BLUETOOTH CORE ====
+        let bleDevice;
+        let bleChar;
+        let receiveBuffer = "";
+        let telemetryTimer;
+
+        let currentRoda = 0;
+        let currentStir = 0;
+
+        // SISTEM ANTREAN COMMAND (Mengatasi GATT already in progress)
+        let commandQueue = [];
+        let isWriting = false;
+
+        function log(msg) { document.getElementById('log').innerText = msg; }
+
+        async function connectBT() {
+            try {
+                log("Meminta Akses Bluetooth...");
+                
+                bleDevice = await navigator.bluetooth.requestDevice({
+                    acceptAllDevices: true,
+                    optionalServices: ['0000ffe0-0000-1000-8000-00805f9b34fb']
+                });
+
+                bleDevice.addEventListener('gattserverdisconnected', setDisconnected);
+
+                log("Device: " + bleDevice.name + ", Menyambungkan GATT...");
+                const server = await bleDevice.gatt.connect();
+
+                log("GATT Connected, Mencari Service...");
+                const service = await server.getPrimaryService('0000ffe0-0000-1000-8000-00805f9b34fb');
+
+                log("Service Ditemukan, Mendapatkan Karakteristik...");
+                bleChar = await service.getCharacteristic('0000ffe1-0000-1000-8000-00805f9b34fb');
+
+                log("BLE READY 🔥 Mulai Notifikasi Rx...");
+                
+                await bleChar.startNotifications();
+                bleChar.addEventListener('characteristicvaluechanged', handleIncomingBLEData);
+
+                setConnected();
+            } catch (err) {
+                log("GAGAL KONEKSI: Pastikan akses dari HTTPS/Localhost");
+                console.error(err);
+            }
+        }
+
+        function disconnectBT() {
+            if (bleDevice && bleDevice.gatt.connected) {
+                bleDevice.gatt.disconnect();
+            } else {
+                setDisconnected();
+            }
+        }
+
+        // FUNGSI PENGIRIMAN DATA YANG DIPERBAIKI
+        function sendCmd(cmd) {
+            if (!bleChar) return;
+
+            // Mencegah request telemetri menumpuk di antrean
+            if (cmd === 'telemetry' && commandQueue.includes('telemetry')) return;
+            
+            commandQueue.push(cmd);
+            processQueue();
+        }
+
+        async function processQueue() {
+            // Jika sedang menulis data, atau antrean kosong, batalkan
+            if (isWriting || commandQueue.length === 0 || !bleChar) return;
+
+            isWriting = true;
+            let cmd = commandQueue.shift(); // Ambil command pertama di antrean
+
+            try {
+                let payload = cmd + "\n"; 
+                let encoder = new TextEncoder();
+                
+                if (bleChar.properties.writeWithoutResponse) {
+                    await bleChar.writeValueWithoutResponse(encoder.encode(payload));
+                } else {
+                    await bleChar.writeValue(encoder.encode(payload));
+                }
+            } catch (e) {
+                console.error("Gagal mengirim Command:", cmd, e);
+            } finally {
+                isWriting = false;
+                // Jika masih ada sisa di antrean, panggil lagi dengan sedikit jeda (10ms) agar modul bisa bernapas
+                if (commandQueue.length > 0) {
+                    setTimeout(processQueue, 10);
+                }
+            }
+        }
+
+        function handleIncomingBLEData(event) {
+            let decoder = new TextDecoder('utf-8');
+            let data = decoder.decode(event.target.value);
+            receiveDataString(data);
+        }
+
+        function receiveDataString(data) {
+            receiveBuffer += data;
+            let lines = receiveBuffer.split('\n');
+            receiveBuffer = lines.pop(); 
+            for (let line of lines) processLine(line.trim());
+        }
+
+        function setConnected() {
+            document.getElementById('bt-status').innerText = "🟢";
+            document.getElementById('btn-connect').style.display = 'none';
+            document.getElementById('btn-disconnect').style.display = 'block';
+            log("Terkoneksi ke Modul BLE");
+            
+            // Reset Antrean
+            commandQueue = [];
+            isWriting = false;
+
+            setTimeout(() => sendCmd('get_params'), 1000);
+            
+            if(telemetryTimer) clearInterval(telemetryTimer);
+            telemetryTimer = setInterval(() => sendCmd('telemetry'), 300);
+        }
+
+        function setDisconnected() {
+            document.getElementById('bt-status').innerText = "🔴";
+            document.getElementById('btn-connect').style.display = 'block';
+            document.getElementById('btn-disconnect').style.display = 'none';
+            log("Terputus dari Modul BLE");
+            
+            clearInterval(telemetryTimer);
+            bleChar = null;
+            commandQueue = [];
+            isWriting = false;
+        }
+
+        function processLine(line) {
+            if (line.length === 0) return;
+            if (line.startsWith("{")) {
+                try {
+                    let data = JSON.parse(line);
+                    
+                    if (data.vbat !== undefined) {
+                        currentRoda = data.roda;
+                        currentStir = data.stir;
+
+                        document.getElementById('tel-vbat').innerText = data.vbat.toFixed(1) + "V";
+                        document.getElementById('tel-roda').innerText = currentRoda;
+                        document.getElementById('tel-stir').innerText = currentStir;
+
+                        document.getElementById('set-live-roda').innerText = currentRoda;
+                        document.getElementById('set-live-stir').innerText = currentStir;
+                    } 
+                    else if (data.lk !== undefined) {
+                        ['lk','rk','mid','dz','spm','sta','bel','ac','acc','man','pk','pr','zgp','dzm','stt'].forEach(k => {
+                            if(document.getElementById('p_'+k)) {
+                                document.getElementById('p_'+k).value = data[k];
+                            }
+                        });
+                        alert("Parameter berhasil dibaca dari STM32!");
+                    }
+                } catch (e) {
+                    console.error("Gagal parsing JSON: ", line);
+                }
+            } 
+            else if (line.startsWith("WARNING:")) {
+                log(line); if(navigator.vibrate) navigator.vibrate([200, 100, 200]);
+            } 
+            else if (line.startsWith("OK:SETTINGS_SAVED")) {
+                alert("Parameter Tersimpan Permanen di STM32!");
+            }
+        }
+
+        function grabADC(targetId, sourceName) {
+            let val = (sourceName === 'roda') ? currentRoda : currentStir;
+            document.getElementById(targetId).value = val;
+            
+            let btn = event.target;
+            let oldText = btn.innerText;
+            btn.innerText = "SIP!";
+            btn.style.background = "#28a745";
+            setTimeout(() => { btn.innerText = oldText; btn.style.background = "#17a2b8"; }, 500);
+        }
+
+        function saveParams() {
+            let p = ['lk','rk','mid','dz','spm','sta','bel','ac','acc','man','pk','pr','zgp','dzm','stt']
+                .map(k => `${k}=${document.getElementById('p_'+k).value}`).join(',');
+            sendCmd(`set_params:${p}`);
+        }
+
+        // ==== UI TAB & THEME SWITCHER ====
+        let currentTheme = 'buttons'; 
+        
+        function switchTab(tabName) {
+            document.querySelectorAll('.container, .tab').forEach(el => el.classList.remove('active'));
+            document.getElementById(tabName).classList.add('active');
+            event.currentTarget.classList.add('active');
+        }
+
+        function toggleTheme() {
+            const btnTheme = document.getElementById('theme-buttons');
+            const joyTheme = document.getElementById('theme-joystick');
+            const switchBtn = document.getElementById('btn-switch-theme');
+
+            if (currentTheme === 'buttons') {
+                btnTheme.style.display = 'none';
+                joyTheme.style.display = 'block';
+                switchBtn.innerText = "🔄 Ganti ke Mode Tombol (Split)";
+                currentTheme = 'joystick';
+            } else {
+                btnTheme.style.display = 'flex';
+                joyTheme.style.display = 'none';
+                switchBtn.innerText = "🔄 Ganti ke Mode Analog Joystick";
+                currentTheme = 'buttons';
+            }
+        }
+
+        // ==== THEME 1: TOMBOL EVENT LISTENER ====
+        const ctrBtns = document.querySelectorAll('.btn-drive, .btn-steer');
+        ctrBtns.forEach(btn => {
+            btn.addEventListener('mousedown', () => sendCmd(btn.dataset.cmd));
+            btn.addEventListener('mouseup', () => sendCmd(btn.dataset.release));
+            btn.addEventListener('mouseleave', () => sendCmd(btn.dataset.release));
+            btn.addEventListener('touchstart', (e) => { e.preventDefault(); sendCmd(btn.dataset.cmd); });
+            btn.addEventListener('touchend', (e) => { e.preventDefault(); sendCmd(btn.dataset.release); });
+        });
+
+        // ==== THEME 2: JOYSTICK VIRTUAL ====
+        const jBase = document.getElementById('j-base');
+        const jStick = document.getElementById('j-stick');
+        let jDragging = false;
+        let baseRect;
+        
+        let lastJoyDrive = "release_drive";
+        let lastJoySteer = "release_steer";
+
+        function startJoy(e) {
+            jDragging = true;
+            baseRect = jBase.getBoundingClientRect();
+            jStick.style.transition = "none"; 
+            moveJoy(e);
+        }
+
+        function moveJoy(e) {
+            if (!jDragging) return;
+            e.preventDefault();
+            
+            let clientX = e.touches ? e.touches[0].clientX : e.clientX;
+            let clientY = e.touches ? e.touches[0].clientY : e.clientY;
+            
+            let centerX = baseRect.left + baseRect.width / 2;
+            let centerY = baseRect.top + baseRect.height / 2;
+            let maxRadius = baseRect.width / 2;
+
+            let dx = clientX - centerX;
+            let dy = clientY - centerY;
+            let distance = Math.min(maxRadius, Math.hypot(dx, dy));
+            let angle = Math.atan2(dy, dx);
+            
+            let stickX = distance * Math.cos(angle);
+            let stickY = distance * Math.sin(angle);
+            
+            jStick.style.transform = `translate(${stickX}px, ${stickY}px)`;
+
+            let normX = stickX / maxRadius;
+            let normY = stickY / maxRadius;
+            
+            let curDrive = "release_drive";
+            let curSteer = "release_steer";
+
+            if (normY < -0.3) curDrive = "maju";
+            else if (normY > 0.3) curDrive = "mundur";
+
+            if (normX < -0.3) curSteer = "kanan"; 
+            else if (normX > 0.3) curSteer = "kiri";  
+
+            if (curDrive !== lastJoyDrive) { lastJoyDrive = curDrive; sendCmd(curDrive); }
+            if (curSteer !== lastJoySteer) { lastJoySteer = curSteer; sendCmd(curSteer); }
+        }
+
+        function stopJoy() {
+            jDragging = false;
+            jStick.style.transition = "transform 0.2s";
+            jStick.style.transform = `translate(0px, 0px)`; 
+
+            if (lastJoyDrive !== "release_drive") { lastJoyDrive = "release_drive"; sendCmd("release_drive"); }
+            if (lastJoySteer !== "release_steer") { lastJoySteer = "release_steer"; sendCmd("release_steer"); }
+        }
+
+        jBase.addEventListener('mousedown', startJoy);
+        document.addEventListener('mousemove', moveJoy);
+        document.addEventListener('mouseup', stopJoy);
+        jBase.addEventListener('touchstart', startJoy, {passive: false});
+        document.addEventListener('touchmove', moveJoy, {passive: false});
+        document.addEventListener('touchend', stopJoy);
+
+    </script>
+</body>
+</html>
