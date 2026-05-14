@@ -190,74 +190,96 @@
         let bleChar;
         let receiveBuffer = "";
         let telemetryTimer;
-
+        let reconnectTimer;
+        
         let currentRoda = 0;
         let currentStir = 0;
-
+        
         // SISTEM ANTREAN COMMAND (Mengatasi GATT already in progress)
         let commandQueue = [];
         let isWriting = false;
-
+        
         function log(msg) { document.getElementById('log').innerText = msg; }
-
+        
         async function connectBT() {
             try {
                 log("Meminta Akses Bluetooth...");
                 
-                bleDevice = await navigator.bluetooth.requestDevice({
-                    acceptAllDevices: true,
-                    optionalServices: ['0000ffe0-0000-1000-8000-00805f9b34fb']
-                });
-
-                bleDevice.addEventListener('gattserverdisconnected', setDisconnected);
-
-                log("Device: " + bleDevice.name + ", Menyambungkan GATT...");
-                const server = await bleDevice.gatt.connect();
-
-                log("GATT Connected, Mencari Service...");
-                const service = await server.getPrimaryService('0000ffe0-0000-1000-8000-00805f9b34fb');
-
-                log("Service Ditemukan, Mendapatkan Karakteristik...");
-                bleChar = await service.getCharacteristic('0000ffe1-0000-1000-8000-00805f9b34fb');
-
-                log("BLE READY 🔥 Mulai Notifikasi Rx...");
-                
-                await bleChar.startNotifications();
-                bleChar.addEventListener('characteristicvaluechanged', handleIncomingBLEData);
-
-                setConnected();
+                // Hanya minta akses device jika belum ada (User Gesture wajib di sini)
+                if (!bleDevice) {
+                    bleDevice = await navigator.bluetooth.requestDevice({
+                        acceptAllDevices: true,
+                        optionalServices: ['0000ffe0-0000-1000-8000-00805f9b34fb']
+                    });
+                    // Daftarkan event listener jika terputus
+                    bleDevice.addEventListener('gattserverdisconnected', onDisconnected);
+                }
+        
+                await setupGATT();
+        
             } catch (err) {
                 log("GAGAL KONEKSI: Pastikan akses dari HTTPS/Localhost");
                 console.error(err);
             }
         }
-
-        function disconnectBT() {
-            if (bleDevice && bleDevice.gatt.connected) {
-                bleDevice.gatt.disconnect();
-            } else {
-                setDisconnected();
+        
+        async function setupGATT() {
+            try {
+                log("Device: " + bleDevice.name + ", Menyambungkan GATT...");
+                const server = await bleDevice.gatt.connect();
+        
+                log("GATT Connected, Mencari Service...");
+                const service = await server.getPrimaryService('0000ffe0-0000-1000-8000-00805f9b34fb');
+        
+                log("Service Ditemukan, Mendapatkan Karakteristik...");
+                bleChar = await service.getCharacteristic('0000ffe1-0000-1000-8000-00805f9b34fb');
+        
+                log("BLE READY 🔥 Mulai Notifikasi Rx...");
+                await bleChar.startNotifications();
+                bleChar.addEventListener('characteristicvaluechanged', handleIncomingBLEData);
+        
+                setConnected();
+            } catch (err) {
+                log("Gagal setup GATT. Coba lagi...");
+                console.error(err);
+                // Jika gagal setup, coba reconnect lagi dalam 2 detik
+                reconnectTimer = setTimeout(setupGATT, 2000);
             }
         }
-
-        // FUNGSI PENGIRIMAN DATA YANG DIPERBAIKI
+        
+        function onDisconnected() {
+            setDisconnected();
+            log("Koneksi terputus! Mencoba auto-reconnect...");
+            // Auto reconnect tiap 2 detik selama web tidak direfresh
+            reconnectTimer = setTimeout(setupGATT, 2000); 
+        }
+        
+        function disconnectBT() {
+            if (bleDevice && bleDevice.gatt.connected) {
+                // Hapus listener agar tidak auto-reconnect saat kita putus manual
+                bleDevice.removeEventListener('gattserverdisconnected', onDisconnected);
+                bleDevice.gatt.disconnect();
+                bleDevice = null; // Reset device agar butuh pairing lagi
+            }
+            setDisconnected();
+            clearTimeout(reconnectTimer);
+            log("Terputus secara manual dari Modul BLE");
+        }
+        
         function sendCmd(cmd) {
             if (!bleChar) return;
-
-            // Mencegah request telemetri menumpuk di antrean
             if (cmd === 'telemetry' && commandQueue.includes('telemetry')) return;
             
             commandQueue.push(cmd);
             processQueue();
         }
-
+        
         async function processQueue() {
-            // Jika sedang menulis data, atau antrean kosong, batalkan
             if (isWriting || commandQueue.length === 0 || !bleChar) return;
-
+        
             isWriting = true;
-            let cmd = commandQueue.shift(); // Ambil command pertama di antrean
-
+            let cmd = commandQueue.shift();
+        
             try {
                 let payload = cmd + "\n"; 
                 let encoder = new TextEncoder();
@@ -271,54 +293,52 @@
                 console.error("Gagal mengirim Command:", cmd, e);
             } finally {
                 isWriting = false;
-                // Jika masih ada sisa di antrean, panggil lagi dengan sedikit jeda (10ms) agar modul bisa bernapas
                 if (commandQueue.length > 0) {
                     setTimeout(processQueue, 10);
                 }
             }
         }
-
+        
         function handleIncomingBLEData(event) {
             let decoder = new TextDecoder('utf-8');
             let data = decoder.decode(event.target.value);
             receiveDataString(data);
         }
-
+        
         function receiveDataString(data) {
             receiveBuffer += data;
             let lines = receiveBuffer.split('\n');
             receiveBuffer = lines.pop(); 
             for (let line of lines) processLine(line.trim());
         }
-
+        
         function setConnected() {
+            clearTimeout(reconnectTimer); // Hentikan timer jika sudah sukses nyambung
             document.getElementById('bt-status').innerText = "🟢";
             document.getElementById('btn-connect').style.display = 'none';
             document.getElementById('btn-disconnect').style.display = 'block';
             log("Terkoneksi ke Modul BLE");
             
-            // Reset Antrean
             commandQueue = [];
             isWriting = false;
-
+        
             setTimeout(() => sendCmd('get_params'), 1000);
             
             if(telemetryTimer) clearInterval(telemetryTimer);
             telemetryTimer = setInterval(() => sendCmd('telemetry'), 300);
         }
-
+        
         function setDisconnected() {
             document.getElementById('bt-status').innerText = "🔴";
             document.getElementById('btn-connect').style.display = 'block';
             document.getElementById('btn-disconnect').style.display = 'none';
-            log("Terputus dari Modul BLE");
             
             clearInterval(telemetryTimer);
             bleChar = null;
             commandQueue = [];
             isWriting = false;
         }
-
+        
         function processLine(line) {
             if (line.length === 0) return;
             if (line.startsWith("{")) {
@@ -328,11 +348,11 @@
                     if (data.vbat !== undefined) {
                         currentRoda = data.roda;
                         currentStir = data.stir;
-
+        
                         document.getElementById('tel-vbat').innerText = data.vbat.toFixed(1) + "V";
                         document.getElementById('tel-roda').innerText = currentRoda;
                         document.getElementById('tel-stir').innerText = currentStir;
-
+        
                         document.getElementById('set-live-roda').innerText = currentRoda;
                         document.getElementById('set-live-stir').innerText = currentStir;
                     } 
@@ -355,7 +375,7 @@
                 alert("Parameter Tersimpan Permanen di STM32!");
             }
         }
-
+        
         function grabADC(targetId, sourceName) {
             let val = (sourceName === 'roda') ? currentRoda : currentStir;
             document.getElementById(targetId).value = val;
@@ -366,13 +386,13 @@
             btn.style.background = "#28a745";
             setTimeout(() => { btn.innerText = oldText; btn.style.background = "#17a2b8"; }, 500);
         }
-
+        
         function saveParams() {
             let p = ['lk','rk','mid','dz','spm','sta','bel','ac','acc','man','pk','pr','zgp','dzm','stt']
                 .map(k => `${k}=${document.getElementById('p_'+k).value}`).join(',');
             sendCmd(`set_params:${p}`);
         }
-
+        
         // ==== UI TAB & THEME SWITCHER ====
         let currentTheme = 'buttons'; 
         
@@ -381,12 +401,12 @@
             document.getElementById(tabName).classList.add('active');
             event.currentTarget.classList.add('active');
         }
-
+        
         function toggleTheme() {
             const btnTheme = document.getElementById('theme-buttons');
             const joyTheme = document.getElementById('theme-joystick');
             const switchBtn = document.getElementById('btn-switch-theme');
-
+        
             if (currentTheme === 'buttons') {
                 btnTheme.style.display = 'none';
                 joyTheme.style.display = 'block';
@@ -399,7 +419,7 @@
                 currentTheme = 'buttons';
             }
         }
-
+        
         // ==== THEME 1: TOMBOL EVENT LISTENER ====
         const ctrBtns = document.querySelectorAll('.btn-drive, .btn-steer');
         ctrBtns.forEach(btn => {
@@ -409,7 +429,7 @@
             btn.addEventListener('touchstart', (e) => { e.preventDefault(); sendCmd(btn.dataset.cmd); });
             btn.addEventListener('touchend', (e) => { e.preventDefault(); sendCmd(btn.dataset.release); });
         });
-
+        
         // ==== THEME 2: JOYSTICK VIRTUAL ====
         const jBase = document.getElementById('j-base');
         const jStick = document.getElementById('j-stick');
@@ -418,14 +438,14 @@
         
         let lastJoyDrive = "release_drive";
         let lastJoySteer = "release_steer";
-
+        
         function startJoy(e) {
             jDragging = true;
             baseRect = jBase.getBoundingClientRect();
             jStick.style.transition = "none"; 
             moveJoy(e);
         }
-
+        
         function moveJoy(e) {
             if (!jDragging) return;
             e.preventDefault();
@@ -436,7 +456,7 @@
             let centerX = baseRect.left + baseRect.width / 2;
             let centerY = baseRect.top + baseRect.height / 2;
             let maxRadius = baseRect.width / 2;
-
+        
             let dx = clientX - centerX;
             let dy = clientY - centerY;
             let distance = Math.min(maxRadius, Math.hypot(dx, dy));
@@ -446,39 +466,40 @@
             let stickY = distance * Math.sin(angle);
             
             jStick.style.transform = `translate(${stickX}px, ${stickY}px)`;
-
+        
             let normX = stickX / maxRadius;
             let normY = stickY / maxRadius;
             
             let curDrive = "release_drive";
             let curSteer = "release_steer";
-
+        
             if (normY < -0.3) curDrive = "maju";
             else if (normY > 0.3) curDrive = "mundur";
-
-            if (normX < -0.3) curSteer = "kanan"; 
-            else if (normX > 0.3) curSteer = "kiri";  
-
+        
+            // PERBAIKAN: Arah Joystick dibalik di sini
+            if (normX < -0.3) curSteer = "kiri";  // Sebelumnya kanan
+            else if (normX > 0.3) curSteer = "kanan"; // Sebelumnya kiri  
+        
             if (curDrive !== lastJoyDrive) { lastJoyDrive = curDrive; sendCmd(curDrive); }
             if (curSteer !== lastJoySteer) { lastJoySteer = curSteer; sendCmd(curSteer); }
         }
-
+        
         function stopJoy() {
             jDragging = false;
             jStick.style.transition = "transform 0.2s";
             jStick.style.transform = `translate(0px, 0px)`; 
-
+        
             if (lastJoyDrive !== "release_drive") { lastJoyDrive = "release_drive"; sendCmd("release_drive"); }
             if (lastJoySteer !== "release_steer") { lastJoySteer = "release_steer"; sendCmd("release_steer"); }
         }
-
+        
         jBase.addEventListener('mousedown', startJoy);
         document.addEventListener('mousemove', moveJoy);
         document.addEventListener('mouseup', stopJoy);
         jBase.addEventListener('touchstart', startJoy, {passive: false});
         document.addEventListener('touchmove', moveJoy, {passive: false});
         document.addEventListener('touchend', stopJoy);
-
+        
     </script>
 </body>
 </html>
