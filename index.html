@@ -26,6 +26,12 @@
         button.action-btn { background: #6c757d; font-size: 14px; padding: 10px;}
         button:active { opacity: 0.8; }
         
+        /* Slider Kecepatan */
+        .slider-wrapper { background: white; padding: 15px; border-radius: 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); margin-bottom: 20px; text-align: center; }
+        .slider-wrapper label { font-size: 14px; font-weight: bold; color: var(--primary); display: block; margin-bottom: 10px; }
+        .slider-wrapper input[type=range] { width: 100%; -webkit-appearance: none; height: 8px; border-radius: 5px; background: #ddd; outline: none; }
+        .slider-wrapper input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 25px; height: 25px; border-radius: 50%; background: var(--primary); cursor: pointer; }
+
         /* Telemetry Panel */
         .telemetry { background: white; padding: 15px; border-radius: 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); margin-bottom: 20px; display: flex; justify-content: space-between; text-align: center; }
         .telemetry div h3 { margin: 0; font-size: 24px; color: var(--primary); }
@@ -39,7 +45,6 @@
         .split-controls { display: flex; justify-content: space-between; margin-top: 30px; }
         .control-group { display: flex; flex-direction: column; gap: 20px; width: 45%; }
         .control-group.row { flex-direction: row; align-items: center; justify-content: center; margin-top: 40px; }
-        
         .btn-drive, .btn-steer { height: 80px; font-size: 24px; border-radius: 15px; background: #ddd; color: #333; touch-action: none; width: 100%; }
         .btn-drive:active, .btn-steer:active { background: var(--primary); color: white; }
 
@@ -47,6 +52,14 @@
         .joystick-wrapper { display: none; margin-top: 40px; text-align: center; }
         .joystick-base { width: 200px; height: 200px; background: #ccc; border-radius: 50%; position: relative; margin: 0 auto; box-shadow: inset 0 0 15px rgba(0,0,0,0.2); touch-action: none; }
         .joystick-stick { width: 80px; height: 80px; background: var(--primary); border-radius: 50%; position: absolute; top: 60px; left: 60px; box-shadow: 0 5px 15px rgba(0,0,0,0.3); pointer-events: none; transition: transform 0.1s; }
+
+        /* THEME 3: Jog CNC */
+        .jog-wrapper { display: none; margin-top: 30px; text-align: center; }
+        .jog-grid { display: grid; grid-template-columns: repeat(3, 80px); gap: 10px; justify-content: center; }
+        .jog-btn { width: 80px; height: 80px; font-size: 28px; border-radius: 15px; background: #ddd; color: #333; touch-action: none; display: flex; align-items: center; justify-content: center; padding: 0; margin: 0; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+        .jog-btn:active { background: var(--primary); color: white; box-shadow: inset 0 4px 6px rgba(0,0,0,0.2); }
+        .jog-btn.stop { background: #dc3545; color: white; font-size: 16px; font-weight: bold; }
+        .jog-btn.stop:active { background: #a71d2a; }
 
         /* Settings Grid */
         .settings-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 20px; }
@@ -77,14 +90,23 @@
         <button id="btn-connect" class="success" onclick="connectBT()">Hubungkan Modul BLE</button>
         <button id="btn-disconnect" class="danger" style="display:none;" onclick="disconnectBT()">Putuskan Koneksi</button>
         
+        <!-- Live Speed Slider -->
+        <div class="slider-wrapper">
+            <label>⚡ Limit Kecepatan PWM: <span id="spd-val">250</span></label>
+            <input type="range" id="pwm-slider" min="0" max="250" value="250" 
+                   oninput="updateSpeedLive(this.value)" 
+                   onchange="updateSpeedFinal(this.value)">
+        </div>
+
         <div class="telemetry">
             <div><h3 id="tel-vbat">0.0V</h3><p>Baterai</p></div>
             <div><h3 id="tel-roda">0</h3><p>ADC Roda</p></div>
             <div><h3 id="tel-stir">0</h3><p>ADC Stir</p></div>
         </div>
 
-        <button id="btn-switch-theme" class="warning" onclick="toggleTheme()">🔄 Ganti ke Mode Analog Joystick</button>
+        <button id="btn-switch-theme" class="warning" onclick="toggleTheme()">🔄 Mode: TOMBOL KIRI-KANAN</button>
 
+        <!-- THEME 1: TOMBOL PISAH -->
         <div id="theme-buttons" class="split-controls">
             <div class="control-group">
                 <button class="btn-drive" data-cmd="maju" data-release="release_drive">▲ Maju</button>
@@ -97,11 +119,30 @@
             </div>
         </div>
 
+        <!-- THEME 2: JOYSTICK -->
         <div id="theme-joystick" class="joystick-wrapper">
             <div class="joystick-base" id="j-base">
                 <div class="joystick-stick" id="j-stick"></div>
             </div>
             <p style="color:#666; font-size:14px; margin-top:20px;">Tarik lingkaran ke segala arah</p>
+        </div>
+
+        <!-- THEME 3: JOG CNC -->
+        <div id="theme-jog" class="jog-wrapper">
+            <div class="jog-grid">
+                <button class="jog-btn" data-d="maju" data-s="kiri">↖</button>
+                <button class="jog-btn" data-d="maju" data-s="">↑</button>
+                <button class="jog-btn" data-d="maju" data-s="kanan">↗</button>
+
+                <button class="jog-btn" data-d="" data-s="kiri">←</button>
+                <button class="jog-btn stop" data-d="release_drive" data-s="release_steer">STOP</button>
+                <button class="jog-btn" data-d="" data-s="kanan">→</button>
+
+                <button class="jog-btn" data-d="mundur" data-s="kiri">↙</button>
+                <button class="jog-btn" data-d="mundur" data-s="">↓</button>
+                <button class="jog-btn" data-d="mundur" data-s="kanan">↘</button>
+            </div>
+            <p style="color:#666; font-size:14px; margin-top:20px;">mau belok tinggal klik pojok</p>
         </div>
 
     </div>
@@ -205,13 +246,11 @@
             try {
                 log("Meminta Akses Bluetooth...");
                 
-                // Hanya minta akses device jika belum ada (User Gesture wajib di sini)
                 if (!bleDevice) {
                     bleDevice = await navigator.bluetooth.requestDevice({
                         acceptAllDevices: true,
                         optionalServices: ['0000ffe0-0000-1000-8000-00805f9b34fb']
                     });
-                    // Daftarkan event listener jika terputus
                     bleDevice.addEventListener('gattserverdisconnected', onDisconnected);
                 }
         
@@ -242,7 +281,6 @@
             } catch (err) {
                 log("Gagal setup GATT. Coba lagi...");
                 console.error(err);
-                // Jika gagal setup, coba reconnect lagi dalam 2 detik
                 reconnectTimer = setTimeout(setupGATT, 2000);
             }
         }
@@ -250,16 +288,14 @@
         function onDisconnected() {
             setDisconnected();
             log("Koneksi terputus! Mencoba auto-reconnect...");
-            // Auto reconnect tiap 2 detik selama web tidak direfresh
             reconnectTimer = setTimeout(setupGATT, 2000); 
         }
         
         function disconnectBT() {
             if (bleDevice && bleDevice.gatt.connected) {
-                // Hapus listener agar tidak auto-reconnect saat kita putus manual
                 bleDevice.removeEventListener('gattserverdisconnected', onDisconnected);
                 bleDevice.gatt.disconnect();
-                bleDevice = null; // Reset device agar butuh pairing lagi
+                bleDevice = null; 
             }
             setDisconnected();
             clearTimeout(reconnectTimer);
@@ -313,7 +349,7 @@
         }
         
         function setConnected() {
-            clearTimeout(reconnectTimer); // Hentikan timer jika sudah sukses nyambung
+            clearTimeout(reconnectTimer); 
             document.getElementById('bt-status').innerText = "🟢";
             document.getElementById('btn-connect').style.display = 'none';
             document.getElementById('btn-disconnect').style.display = 'block';
@@ -360,6 +396,11 @@
                         ['lk','rk','mid','dz','spm','sta','bel','ac','acc','man','pk','pr','zgp','dzm','stt'].forEach(k => {
                             if(document.getElementById('p_'+k)) {
                                 document.getElementById('p_'+k).value = data[k];
+                                // Sinkronkan nilai speed jika data spm masuk
+                                if(k === 'spm') {
+                                    document.getElementById('pwm-slider').value = data[k];
+                                    document.getElementById('spd-val').innerText = data[k];
+                                }
                             }
                         });
                         alert("Parameter berhasil dibaca dari STM32!");
@@ -374,6 +415,23 @@
             else if (line.startsWith("OK:SETTINGS_SAVED")) {
                 alert("Parameter Tersimpan Permanen di STM32!");
             }
+        }
+
+        // ==== SLIDER KECEPATAN (LIVE & THROTTLED) ====
+        let lastSpeedTime = 0;
+        function updateSpeedLive(val) {
+            document.getElementById('spd-val').innerText = val;
+            document.getElementById('p_spm').value = val; // Sinkronkan otomatis ke tab setting
+            
+            let now = Date.now();
+            // Batasi pengiriman perintah agar tidak over-flooding BLE (max 5x per detik saat digeser)
+            if (now - lastSpeedTime > 200) {
+                sendCmd(`set_params:spm=${val}`);
+                lastSpeedTime = now;
+            }
+        }
+        function updateSpeedFinal(val) {
+            sendCmd(`set_params:spm=${val}`); // Pastikan nilai final tepat saat slider dilepas
         }
         
         function grabADC(targetId, sourceName) {
@@ -394,7 +452,8 @@
         }
         
         // ==== UI TAB & THEME SWITCHER ====
-        let currentTheme = 'buttons'; 
+        const themes = ['buttons', 'joystick', 'jog'];
+        let currentThemeIdx = 0; 
         
         function switchTab(tabName) {
             document.querySelectorAll('.container, .tab').forEach(el => el.classList.remove('active'));
@@ -403,21 +462,15 @@
         }
         
         function toggleTheme() {
-            const btnTheme = document.getElementById('theme-buttons');
-            const joyTheme = document.getElementById('theme-joystick');
-            const switchBtn = document.getElementById('btn-switch-theme');
-        
-            if (currentTheme === 'buttons') {
-                btnTheme.style.display = 'none';
-                joyTheme.style.display = 'block';
-                switchBtn.innerText = "🔄 Ganti ke Mode Tombol (Split)";
-                currentTheme = 'joystick';
-            } else {
-                btnTheme.style.display = 'flex';
-                joyTheme.style.display = 'none';
-                switchBtn.innerText = "🔄 Ganti ke Mode Analog Joystick";
-                currentTheme = 'buttons';
-            }
+            currentThemeIdx = (currentThemeIdx + 1) % themes.length;
+            let activeTheme = themes[currentThemeIdx];
+
+            document.getElementById('theme-buttons').style.display = (activeTheme === 'buttons') ? 'flex' : 'none';
+            document.getElementById('theme-joystick').style.display = (activeTheme === 'joystick') ? 'block' : 'none';
+            document.getElementById('theme-jog').style.display = (activeTheme === 'jog') ? 'block' : 'none';
+            
+            let textName = activeTheme === 'buttons' ? "TOMBOL KIRI-KANAN" : (activeTheme === 'joystick' ? "ANALOG JOYSTICK" : "JOG CNC (DIAGONAL)");
+            document.getElementById('btn-switch-theme').innerText = `🔄 Mode: ${textName}`;
         }
         
         // ==== THEME 1: TOMBOL EVENT LISTENER ====
@@ -428,6 +481,32 @@
             btn.addEventListener('mouseleave', () => sendCmd(btn.dataset.release));
             btn.addEventListener('touchstart', (e) => { e.preventDefault(); sendCmd(btn.dataset.cmd); });
             btn.addEventListener('touchend', (e) => { e.preventDefault(); sendCmd(btn.dataset.release); });
+        });
+
+        // ==== THEME 3: JOG CNC EVENT LISTENER ====
+        const jogBtns = document.querySelectorAll('.jog-btn');
+        jogBtns.forEach(btn => {
+            const press = (e) => {
+                e.preventDefault();
+                if(btn.dataset.d && btn.dataset.d !== "release_drive") sendCmd(btn.dataset.d);
+                if(btn.dataset.s && btn.dataset.s !== "release_steer") sendCmd(btn.dataset.s);
+                if(btn.classList.contains('stop')) {
+                    sendCmd("release_drive");
+                    sendCmd("release_steer");
+                }
+            };
+            const release = (e) => {
+                e.preventDefault();
+                if(!btn.classList.contains('stop')) {
+                    if(btn.dataset.d) sendCmd("release_drive");
+                    if(btn.dataset.s) sendCmd("release_steer");
+                }
+            };
+            btn.addEventListener('mousedown', press);
+            btn.addEventListener('mouseup', release);
+            btn.addEventListener('mouseleave', release);
+            btn.addEventListener('touchstart', press, {passive: false});
+            btn.addEventListener('touchend', release);
         });
         
         // ==== THEME 2: JOYSTICK VIRTUAL ====
@@ -476,9 +555,8 @@
             if (normY < -0.3) curDrive = "maju";
             else if (normY > 0.3) curDrive = "mundur";
         
-            // PERBAIKAN: Arah Joystick dibalik di sini
-            if (normX < -0.3) curSteer = "kiri";  // Sebelumnya kanan
-            else if (normX > 0.3) curSteer = "kanan"; // Sebelumnya kiri  
+            if (normX < -0.3) curSteer = "kiri";  
+            else if (normX > 0.3) curSteer = "kanan"; 
         
             if (curDrive !== lastJoyDrive) { lastJoyDrive = curDrive; sendCmd(curDrive); }
             if (curSteer !== lastJoySteer) { lastJoySteer = curSteer; sendCmd(curSteer); }
