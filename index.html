@@ -121,7 +121,7 @@
         
         <div class="slider-wrapper">
             <label>⚡ Limit Kecepatan PWM: <span id="spd-val">Menunggu...</span></label>
-            <input type="range" id="pwm-slider" min="0" max="250" value="0" 
+            <input type="range" id="pwm-slider" min="30" max="250" value="30" 
                    oninput="updateSpeedLive(this.value)" 
                    onchange="updateSpeedFinal(this.value)">
         </div>
@@ -276,9 +276,10 @@
         let currentRoda = 0;
         let currentStir = 0;
         
-        // SISTEM ANTREAN COMMAND (Mengatasi GATT already in progress)
+        // FLAG & QUEUE SYSTEM
         let commandQueue = [];
         let isWriting = false;
+        let paramsLoaded = false; // Flag cerdas untuk mastiin parameter udah diload
         
         function log(msg) { document.getElementById('log').innerText = msg; }
         
@@ -347,7 +348,9 @@
         
         function sendCmd(cmd) {
             if (!bleChar) return;
+            // Cegah antrean menumpuk kalau ada command yang sama
             if (cmd === 'telemetry' && commandQueue.includes('telemetry')) return;
+            if (cmd === 'get_params' && commandQueue.includes('get_params')) return;
             
             commandQueue.push(cmd);
             processQueue();
@@ -400,19 +403,21 @@
             
             commandQueue = [];
             isWriting = false;
+            paramsLoaded = false; // Reset flag saat baru connect
 
-            showToast("Sinkronisasi parameter otomatis...", "info");
+            showToast("Mengambil parameter otomatis...", "info");
         
-            // PRIORITAS 1: Kirim get_params duluan saat baru connect (Jeda 800ms biar stabil)
-            setTimeout(() => {
-                sendCmd('get_params');
-            }, 800);
-            
-            // PRIORITAS 2: Tunda Telemetry. Jangan biarkan telemetry jalan barengan sama get_params biar gak tabrakan di STM32
             if(telemetryTimer) clearInterval(telemetryTimer);
-            setTimeout(() => {
-                telemetryTimer = setInterval(() => sendCmd('telemetry'), 300);
-            }, 2000); // Telemetry baru jalan setelah 2 detik
+            
+            // SMART LOOP: Selama parameter belum sukses diload, paksa kirim get_params.
+            // Kalau udah sukses diload, loop ini otomatis berubah jadi tukang ngirim telemetry.
+            telemetryTimer = setInterval(() => {
+                if (!paramsLoaded) {
+                    sendCmd('get_params');
+                } else {
+                    sendCmd('telemetry');
+                }
+            }, 400); // Jalan setiap 400ms biar ga nabrak dan pasti ke-catch
         }
         
         function setDisconnected() {
@@ -424,6 +429,7 @@
             bleChar = null;
             commandQueue = [];
             isWriting = false;
+            paramsLoaded = false;
         }
         
         function processLine(line) {
@@ -445,7 +451,7 @@
                         document.getElementById('set-live-stir').innerText = currentStir;
                     } 
                     else {
-                        // JIKA BUKAN TELEMETRY, KEMUNGKINAN INI BALASAN GET_PARAMS
+                        // JIKA BUKAN TELEMETRY, INI PASTI BALASAN GET_PARAMS
                         let isParamUpdated = false;
                         let paramKeys = ['lk','rk','mid','dz','spm','sta','bel','ac','acc','man','pk','pr','zgp','dzm','stt'];
                         
@@ -458,7 +464,7 @@
                                     document.getElementById('p_'+k).value = data[k];
                                 }
                                 
-                                // Spesial untuk SPM: Update juga Slider Kecepatan di tab Remote!
+                                // Spesial untuk SPM: Update Slider Kecepatan di tab Remote!
                                 if(k === 'spm') {
                                     document.getElementById('pwm-slider').value = data[k];
                                     document.getElementById('spd-val').innerText = data[k];
@@ -466,8 +472,12 @@
                             }
                         });
 
-                        if(isParamUpdated) {
-                            showToast("Parameter lengkap berhasil dimuat!", "success");
+                        if(isParamUpdated && !paramsLoaded) {
+                            paramsLoaded = true; // YES! Parameter udah berhasil didapat. Stop nanya get_params!
+                            showToast("Parameter otomatis dimuat!", "success");
+                        } else if (isParamUpdated && paramsLoaded) {
+                            // Ini kalau pencet tombol "Baca Ulang (Manual)"
+                            showToast("Parameter diperbarui!", "success");
                         }
                     }
                 } catch (e) {
