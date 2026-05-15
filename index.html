@@ -41,19 +41,19 @@
         .live-bar { background: #222; color: #0f0; padding: 10px; border-radius: 8px; margin-bottom: 15px; text-align: center; font-family: monospace; font-size: 16px; font-weight: bold; box-shadow: inset 0 0 10px #000; }
         .live-bar span { margin: 0 10px; }
 
-        /* THEME 1: Split Controls (Kiri Kanan) - Hidden by default now */
+        /* THEME 1: Split Controls (Kiri Kanan) */
         .split-controls { display: none; justify-content: space-between; margin-top: 30px; }
         .control-group { display: flex; flex-direction: column; gap: 20px; width: 45%; }
         .control-group.row { flex-direction: row; align-items: center; justify-content: center; margin-top: 40px; }
         .btn-drive, .btn-steer { height: 80px; font-size: 24px; border-radius: 15px; background: #ddd; color: #333; touch-action: none; width: 100%; }
         .btn-drive:active, .btn-steer:active { background: var(--primary); color: white; }
 
-        /* THEME 2: Joystick - Hidden by default */
+        /* THEME 2: Joystick */
         .joystick-wrapper { display: none; margin-top: 40px; text-align: center; }
         .joystick-base { width: 200px; height: 200px; background: #ccc; border-radius: 50%; position: relative; margin: 0 auto; box-shadow: inset 0 0 15px rgba(0,0,0,0.2); touch-action: none; }
         .joystick-stick { width: 80px; height: 80px; background: var(--primary); border-radius: 50%; position: absolute; top: 60px; left: 60px; box-shadow: 0 5px 15px rgba(0,0,0,0.3); pointer-events: none; transition: transform 0.1s; }
 
-        /* THEME 3: Jog CNC - Shown by default now */
+        /* THEME 3: Jog CNC */
         .jog-wrapper { display: block; margin-top: 30px; text-align: center; }
         .jog-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; justify-content: center; max-width: 500px; margin: 0 auto; }
         .jog-btn { width: 100%; height: 90px; font-size: 36px; border-radius: 15px; background: #ddd; color: #333; touch-action: none; display: flex; align-items: center; justify-content: center; padding: 0; margin: 0; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
@@ -72,6 +72,35 @@
         .section-title { grid-column: span 2; font-size: 14px; color: var(--primary); font-weight: bold; border-bottom: 2px solid #ccc; padding-bottom: 5px; margin-top: 10px; }
 
         #log { font-size: 12px; color: #888; text-align: center; margin-top: 10px; }
+
+        /* Toast Notification System */
+        #toast {
+            visibility: hidden;
+            min-width: 250px;
+            background-color: #333;
+            color: #fff;
+            text-align: center;
+            border-radius: 8px;
+            padding: 15px;
+            position: fixed;
+            z-index: 9999;
+            left: 50%;
+            transform: translateX(-50%);
+            bottom: 30px;
+            font-size: 14px;
+            font-weight: bold;
+            box-shadow: 0px 4px 10px rgba(0,0,0,0.3);
+            opacity: 0;
+            transition: opacity 0.3s, bottom 0.3s;
+        }
+        #toast.show {
+            visibility: visible;
+            opacity: 1;
+            bottom: 50px;
+        }
+        #toast.success { background-color: #28a745; }
+        #toast.info { background-color: #17a2b8; }
+        #toast.error { background-color: #dc3545; }
     </style>
 </head>
 <body>
@@ -221,7 +250,22 @@
         <button class="danger" style="padding: 15px;" onclick="saveParams()">💾 SIMPAN PARAMETER KE EEPROM</button>
     </div>
 
+    <div id="toast">Notifikasi</div>
+
     <script>
+        // ==== TOAST NOTIFICATION SYSTEM ====
+        let toastTimeout;
+        function showToast(msg, type = 'info') {
+            const toast = document.getElementById("toast");
+            toast.innerText = msg;
+            toast.className = "show " + type;
+            
+            clearTimeout(toastTimeout);
+            toastTimeout = setTimeout(() => { 
+                toast.className = toast.className.replace("show", ""); 
+            }, 3000); // Hilang setelah 3 detik
+        }
+
         // ==== WEB BLUETOOTH CORE ====
         let bleDevice;
         let bleChar;
@@ -255,6 +299,7 @@
             } catch (err) {
                 log("GAGAL KONEKSI: Pastikan akses dari HTTPS/Localhost");
                 console.error(err);
+                showToast("Koneksi gagal atau ditolak!", "error");
             }
         }
         
@@ -284,6 +329,7 @@
         function onDisconnected() {
             setDisconnected();
             log("Koneksi terputus! Mencoba auto-reconnect...");
+            showToast("Koneksi BLE Terputus!", "error");
             reconnectTimer = setTimeout(setupGATT, 2000); 
         }
         
@@ -296,6 +342,7 @@
             setDisconnected();
             clearTimeout(reconnectTimer);
             log("Terputus secara manual dari Modul BLE");
+            showToast("Terputus secara manual", "info");
         }
         
         function sendCmd(cmd) {
@@ -353,8 +400,11 @@
             
             commandQueue = [];
             isWriting = false;
+
+            // Memunculkan Toast info bahwa sedang mengambil data
+            showToast("BLE Terhubung! Sinkronisasi data...", "info");
         
-            // Tarik parameter dari STM32 setelah 1 detik konek
+            // Tarik parameter otomatis 1 detik setelah connect agar STM32 siap
             setTimeout(() => sendCmd('get_params'), 1000);
             
             if(telemetryTimer) clearInterval(telemetryTimer);
@@ -400,7 +450,8 @@
                                 }
                             }
                         });
-                        alert("Parameter berhasil dibaca dari STM32!");
+                        // Mengganti alert dengan toast notification
+                        showToast("Parameter berhasil disinkronisasi!", "success");
                     }
                 } catch (e) {
                     console.error("Gagal parsing JSON: ", line);
@@ -408,9 +459,11 @@
             } 
             else if (line.startsWith("WARNING:")) {
                 log(line); if(navigator.vibrate) navigator.vibrate([200, 100, 200]);
+                showToast(line, "error");
             } 
             else if (line.startsWith("OK:SETTINGS_SAVED")) {
-                alert("Parameter Tersimpan Permanen di STM32!");
+                // Mengganti alert dengan toast notification
+                showToast("Parameter Tersimpan Permanen di STM32!", "success");
             }
         }
 
@@ -442,13 +495,13 @@
         }
         
         function saveParams() {
+            showToast("Menyimpan ke STM32...", "info");
             let p = ['lk','rk','mid','dz','spm','sta','bel','ac','acc','man','pk','pr','zgp','dzm','stt']
                 .map(k => `${k}=${document.getElementById('p_'+k).value}`).join(',');
             sendCmd(`set_params:${p}`);
         }
         
         // ==== UI TAB & THEME SWITCHER ====
-        // Urutan dirubah: 1. jog (default), 2. buttons, 3. joystick
         const themes = ['jog', 'buttons', 'joystick'];
         let currentThemeIdx = 0; 
         
