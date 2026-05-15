@@ -213,16 +213,16 @@
 
             <div class="section-title">Tenaga & Motor Controller</div>
             <div class="form-group"><label>Speed PWM Max (spm)</label>
-                <div class="input-group"><input type="number" id="p_spm"></div>
+                <div class="input-group"><input type="number" id="p_spm" min="5" max="250" placeholder="5 - 250"></div>
             </div>
             <div class="form-group"><label>Start PWM Hentakan (sta)</label>
-                <div class="input-group"><input type="number" id="p_sta"></div>
+                <div class="input-group"><input type="number" id="p_sta" min="1" max="100" placeholder="1 - 100"></div>
             </div>
             <div class="form-group"><label>Tenaga Belok PWM (bel)</label>
-                <div class="input-group"><input type="number" id="p_bel"></div>
+                <div class="input-group"><input type="number" id="p_bel" min="5" max="250" placeholder="5 - 250"></div>
             </div>
             <div class="form-group"><label>Waktu Akselerasi ms (acc)</label>
-                <div class="input-group"><input type="number" id="p_acc"></div>
+                <div class="input-group"><input type="number" id="p_acc" min="1" max="5000" placeholder="1 - 5000"></div>
             </div>
 
             <div class="section-title">Safety & Mode</div>
@@ -279,7 +279,7 @@
         // FLAG & QUEUE SYSTEM
         let commandQueue = [];
         let isWriting = false;
-        let paramsLoaded = false; // Flag cerdas untuk mastiin parameter udah diload
+        let paramsLoaded = false; 
         
         function log(msg) { document.getElementById('log').innerText = msg; }
         
@@ -348,7 +348,6 @@
         
         function sendCmd(cmd) {
             if (!bleChar) return;
-            // Cegah antrean menumpuk kalau ada command yang sama
             if (cmd === 'telemetry' && commandQueue.includes('telemetry')) return;
             if (cmd === 'get_params' && commandQueue.includes('get_params')) return;
             
@@ -403,21 +402,19 @@
             
             commandQueue = [];
             isWriting = false;
-            paramsLoaded = false; // Reset flag saat baru connect
+            paramsLoaded = false;
 
             showToast("Mengambil parameter otomatis...", "info");
         
             if(telemetryTimer) clearInterval(telemetryTimer);
             
-            // SMART LOOP: Selama parameter belum sukses diload, paksa kirim get_params.
-            // Kalau udah sukses diload, loop ini otomatis berubah jadi tukang ngirim telemetry.
             telemetryTimer = setInterval(() => {
                 if (!paramsLoaded) {
                     sendCmd('get_params');
                 } else {
                     sendCmd('telemetry');
                 }
-            }, 400); // Jalan setiap 400ms biar ga nabrak dan pasti ke-catch
+            }, 400);
         }
         
         function setDisconnected() {
@@ -438,7 +435,6 @@
                 try {
                     let data = JSON.parse(line);
                     
-                    // CEK DATA TELEMETRY (Ada vbat)
                     if (data.vbat !== undefined) {
                         currentRoda = data.roda;
                         currentStir = data.stir;
@@ -451,20 +447,15 @@
                         document.getElementById('set-live-stir').innerText = currentStir;
                     } 
                     else {
-                        // JIKA BUKAN TELEMETRY, INI PASTI BALASAN GET_PARAMS
                         let isParamUpdated = false;
                         let paramKeys = ['lk','rk','mid','dz','spm','sta','bel','ac','acc','man','pk','pr','zgp','dzm','stt'];
                         
                         paramKeys.forEach(k => {
                             if (data[k] !== undefined) {
                                 isParamUpdated = true;
-                                
-                                // Update textbox di Settings
                                 if(document.getElementById('p_'+k)) {
                                     document.getElementById('p_'+k).value = data[k];
                                 }
-                                
-                                // Spesial untuk SPM: Update Slider Kecepatan di tab Remote!
                                 if(k === 'spm') {
                                     document.getElementById('pwm-slider').value = data[k];
                                     document.getElementById('spd-val').innerText = data[k];
@@ -473,10 +464,9 @@
                         });
 
                         if(isParamUpdated && !paramsLoaded) {
-                            paramsLoaded = true; // YES! Parameter udah berhasil didapat. Stop nanya get_params!
+                            paramsLoaded = true; 
                             showToast("Parameter otomatis dimuat!", "success");
                         } else if (isParamUpdated && paramsLoaded) {
-                            // Ini kalau pencet tombol "Baca Ulang (Manual)"
                             showToast("Parameter diperbarui!", "success");
                         }
                     }
@@ -520,7 +510,37 @@
             setTimeout(() => { btn.innerText = oldText; btn.style.background = "#17a2b8"; }, 500);
         }
         
+        // ==== FUNGSI SIMPAN PARAMETER + VALIDASI ====
         function saveParams() {
+            // Validasi: Speed PWM Max (spm) -> min 5, max 250
+            let spm = parseInt(document.getElementById('p_spm').value);
+            if (isNaN(spm) || spm < 5 || spm > 250) {
+                showToast("Gagal: Speed PWM Max (spm) harus di antara 5 - 250!", "error");
+                return; // Stop proses simpan
+            }
+
+            // Validasi: Tenaga Belok PWM (bel) -> min 5, max 250
+            let bel = parseInt(document.getElementById('p_bel').value);
+            if (isNaN(bel) || bel < 5 || bel > 250) {
+                showToast("Gagal: Tenaga Belok PWM (bel) harus di antara 5 - 250!", "error");
+                return;
+            }
+
+            // Validasi: Start PWM Hentakan (sta) -> min 1, max 100
+            let sta = parseInt(document.getElementById('p_sta').value);
+            if (isNaN(sta) || sta < 1 || sta > 100) {
+                showToast("Gagal: Start PWM Hentakan (sta) harus di antara 1 - 100!", "error");
+                return;
+            }
+
+            // Validasi: Waktu Akselerasi (acc) -> min 1, max 5000
+            let acc = parseInt(document.getElementById('p_acc').value);
+            if (isNaN(acc) || acc < 1 || acc > 5000) {
+                showToast("Gagal: Waktu Akselerasi ms (acc) harus di antara 1 - 5000!", "error");
+                return;
+            }
+
+            // Kalau lolos semua validasi di atas, lanjut simpan!
             showToast("Menyimpan ke STM32...", "info");
             let p = ['lk','rk','mid','dz','spm','sta','bel','ac','acc','man','pk','pr','zgp','dzm','stt']
                 .map(k => `${k}=${document.getElementById('p_'+k).value}`).join(',');
