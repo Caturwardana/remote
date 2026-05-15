@@ -41,24 +41,24 @@
         .live-bar { background: #222; color: #0f0; padding: 10px; border-radius: 8px; margin-bottom: 15px; text-align: center; font-family: monospace; font-size: 16px; font-weight: bold; box-shadow: inset 0 0 10px #000; }
         .live-bar span { margin: 0 10px; }
 
-        /* THEME 1: Split Controls (Kiri Kanan) */
-        .split-controls { display: flex; justify-content: space-between; margin-top: 30px; }
+        /* THEME 1: Split Controls (Kiri Kanan) - Hidden by default now */
+        .split-controls { display: none; justify-content: space-between; margin-top: 30px; }
         .control-group { display: flex; flex-direction: column; gap: 20px; width: 45%; }
         .control-group.row { flex-direction: row; align-items: center; justify-content: center; margin-top: 40px; }
         .btn-drive, .btn-steer { height: 80px; font-size: 24px; border-radius: 15px; background: #ddd; color: #333; touch-action: none; width: 100%; }
         .btn-drive:active, .btn-steer:active { background: var(--primary); color: white; }
 
-        /* THEME 2: Joystick */
+        /* THEME 2: Joystick - Hidden by default */
         .joystick-wrapper { display: none; margin-top: 40px; text-align: center; }
         .joystick-base { width: 200px; height: 200px; background: #ccc; border-radius: 50%; position: relative; margin: 0 auto; box-shadow: inset 0 0 15px rgba(0,0,0,0.2); touch-action: none; }
         .joystick-stick { width: 80px; height: 80px; background: var(--primary); border-radius: 50%; position: absolute; top: 60px; left: 60px; box-shadow: 0 5px 15px rgba(0,0,0,0.3); pointer-events: none; transition: transform 0.1s; }
 
-        /* THEME 3: Jog CNC */
-        .jog-wrapper { display: none; margin-top: 30px; text-align: center; }
-        .jog-grid { display: grid; grid-template-columns: repeat(3, 80px); gap: 10px; justify-content: center; }
-        .jog-btn { width: 80px; height: 80px; font-size: 28px; border-radius: 15px; background: #ddd; color: #333; touch-action: none; display: flex; align-items: center; justify-content: center; padding: 0; margin: 0; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+        /* THEME 3: Jog CNC - Shown by default now */
+        .jog-wrapper { display: block; margin-top: 30px; text-align: center; }
+        .jog-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; justify-content: center; max-width: 500px; margin: 0 auto; }
+        .jog-btn { width: 100%; height: 90px; font-size: 36px; border-radius: 15px; background: #ddd; color: #333; touch-action: none; display: flex; align-items: center; justify-content: center; padding: 0; margin: 0; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
         .jog-btn:active { background: var(--primary); color: white; box-shadow: inset 0 4px 6px rgba(0,0,0,0.2); }
-        .jog-btn.stop { background: #dc3545; color: white; font-size: 16px; font-weight: bold; }
+        .jog-btn.stop { background: #dc3545; color: white; font-size: 20px; font-weight: bold; }
         .jog-btn.stop:active { background: #a71d2a; }
 
         /* Settings Grid */
@@ -90,10 +90,9 @@
         <button id="btn-connect" class="success" onclick="connectBT()">Hubungkan Modul BLE</button>
         <button id="btn-disconnect" class="danger" style="display:none;" onclick="disconnectBT()">Putuskan Koneksi</button>
         
-        <!-- Live Speed Slider -->
         <div class="slider-wrapper">
-            <label>⚡ Limit Kecepatan PWM: <span id="spd-val">250</span></label>
-            <input type="range" id="pwm-slider" min="0" max="250" value="250" 
+            <label>⚡ Limit Kecepatan PWM: <span id="spd-val">Menunggu...</span></label>
+            <input type="range" id="pwm-slider" min="0" max="250" value="0" 
                    oninput="updateSpeedLive(this.value)" 
                    onchange="updateSpeedFinal(this.value)">
         </div>
@@ -104,30 +103,8 @@
             <div><h3 id="tel-stir">0</h3><p>ADC Stir</p></div>
         </div>
 
-        <button id="btn-switch-theme" class="warning" onclick="toggleTheme()">🔄 Mode: TOMBOL KIRI-KANAN</button>
+        <button id="btn-switch-theme" class="warning" onclick="toggleTheme()">🔄 Mode: JOG CNC (DIAGONAL)</button>
 
-        <!-- THEME 1: TOMBOL PISAH -->
-        <div id="theme-buttons" class="split-controls">
-            <div class="control-group">
-                <button class="btn-drive" data-cmd="maju" data-release="release_drive">▲ Maju</button>
-                <button class="btn-drive" data-cmd="mundur" data-release="release_drive">▼ Mundur</button>
-            </div>
-            
-            <div class="control-group row">
-                <button class="btn-steer" data-cmd="kiri" data-release="release_steer">◄ Kiri</button>
-                <button class="btn-steer" data-cmd="kanan" data-release="release_steer">Kanan ►</button>
-            </div>
-        </div>
-
-        <!-- THEME 2: JOYSTICK -->
-        <div id="theme-joystick" class="joystick-wrapper">
-            <div class="joystick-base" id="j-base">
-                <div class="joystick-stick" id="j-stick"></div>
-            </div>
-            <p style="color:#666; font-size:14px; margin-top:20px;">Tarik lingkaran ke segala arah</p>
-        </div>
-
-        <!-- THEME 3: JOG CNC -->
         <div id="theme-jog" class="jog-wrapper">
             <div class="jog-grid">
                 <button class="jog-btn" data-d="maju" data-s="kiri">↖</button>
@@ -142,7 +119,26 @@
                 <button class="jog-btn" data-d="mundur" data-s="">↓</button>
                 <button class="jog-btn" data-d="mundur" data-s="kanan">↘</button>
             </div>
-            <p style="color:#666; font-size:14px; margin-top:20px;">mau belok tinggal klik pojok</p>
+            <p style="color:#666; font-size:14px; margin-top:20px;">Mode kendali ala Mesin CNC</p>
+        </div>
+
+        <div id="theme-buttons" class="split-controls">
+            <div class="control-group">
+                <button class="btn-drive" data-cmd="maju" data-release="release_drive">▲ Maju</button>
+                <button class="btn-drive" data-cmd="mundur" data-release="release_drive">▼ Mundur</button>
+            </div>
+            
+            <div class="control-group row">
+                <button class="btn-steer" data-cmd="kiri" data-release="release_steer">◄ Kiri</button>
+                <button class="btn-steer" data-cmd="kanan" data-release="release_steer">Kanan ►</button>
+            </div>
+        </div>
+
+        <div id="theme-joystick" class="joystick-wrapper">
+            <div class="joystick-base" id="j-base">
+                <div class="joystick-stick" id="j-stick"></div>
+            </div>
+            <p style="color:#666; font-size:14px; margin-top:20px;">Tarik lingkaran ke segala arah</p>
         </div>
 
     </div>
@@ -358,6 +354,7 @@
             commandQueue = [];
             isWriting = false;
         
+            // Tarik parameter dari STM32 setelah 1 detik konek
             setTimeout(() => sendCmd('get_params'), 1000);
             
             if(telemetryTimer) clearInterval(telemetryTimer);
@@ -396,7 +393,7 @@
                         ['lk','rk','mid','dz','spm','sta','bel','ac','acc','man','pk','pr','zgp','dzm','stt'].forEach(k => {
                             if(document.getElementById('p_'+k)) {
                                 document.getElementById('p_'+k).value = data[k];
-                                // Sinkronkan nilai speed jika data spm masuk
+                                // Sinkronkan nilai speed slider saat terima data dari STM32
                                 if(k === 'spm') {
                                     document.getElementById('pwm-slider').value = data[k];
                                     document.getElementById('spd-val').innerText = data[k];
@@ -421,17 +418,16 @@
         let lastSpeedTime = 0;
         function updateSpeedLive(val) {
             document.getElementById('spd-val').innerText = val;
-            document.getElementById('p_spm').value = val; // Sinkronkan otomatis ke tab setting
+            document.getElementById('p_spm').value = val; 
             
             let now = Date.now();
-            // Batasi pengiriman perintah agar tidak over-flooding BLE (max 5x per detik saat digeser)
             if (now - lastSpeedTime > 200) {
                 sendCmd(`set_params:spm=${val}`);
                 lastSpeedTime = now;
             }
         }
         function updateSpeedFinal(val) {
-            sendCmd(`set_params:spm=${val}`); // Pastikan nilai final tepat saat slider dilepas
+            sendCmd(`set_params:spm=${val}`);
         }
         
         function grabADC(targetId, sourceName) {
@@ -452,7 +448,8 @@
         }
         
         // ==== UI TAB & THEME SWITCHER ====
-        const themes = ['buttons', 'joystick', 'jog'];
+        // Urutan dirubah: 1. jog (default), 2. buttons, 3. joystick
+        const themes = ['jog', 'buttons', 'joystick'];
         let currentThemeIdx = 0; 
         
         function switchTab(tabName) {
@@ -465,11 +462,11 @@
             currentThemeIdx = (currentThemeIdx + 1) % themes.length;
             let activeTheme = themes[currentThemeIdx];
 
+            document.getElementById('theme-jog').style.display = (activeTheme === 'jog') ? 'block' : 'none';
             document.getElementById('theme-buttons').style.display = (activeTheme === 'buttons') ? 'flex' : 'none';
             document.getElementById('theme-joystick').style.display = (activeTheme === 'joystick') ? 'block' : 'none';
-            document.getElementById('theme-jog').style.display = (activeTheme === 'jog') ? 'block' : 'none';
             
-            let textName = activeTheme === 'buttons' ? "TOMBOL KIRI-KANAN" : (activeTheme === 'joystick' ? "ANALOG JOYSTICK" : "JOG CNC (DIAGONAL)");
+            let textName = activeTheme === 'jog' ? "JOG CNC (DIAGONAL)" : (activeTheme === 'buttons' ? "TOMBOL KIRI-KANAN" : "ANALOG JOYSTICK");
             document.getElementById('btn-switch-theme').innerText = `🔄 Mode: ${textName}`;
         }
         
