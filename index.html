@@ -179,7 +179,7 @@
             <span>🕹️ Stir: <span id="set-live-stir">0</span></span>
         </div>
 
-        <button class="action-btn" onclick="sendCmd('get_params')">📥 Baca Parameter dari STM32</button>
+        <button class="action-btn" onclick="sendCmd('get_params')">📥 Baca Ulang Parameter (Manual)</button>
         
         <div class="settings-grid">
             
@@ -401,14 +401,18 @@
             commandQueue = [];
             isWriting = false;
 
-            // Memunculkan Toast info bahwa sedang mengambil data
-            showToast("BLE Terhubung! Sinkronisasi data...", "info");
+            showToast("Sinkronisasi parameter otomatis...", "info");
         
-            // Tarik parameter otomatis 1 detik setelah connect agar STM32 siap
-            setTimeout(() => sendCmd('get_params'), 1000);
+            // PRIORITAS 1: Kirim get_params duluan saat baru connect (Jeda 800ms biar stabil)
+            setTimeout(() => {
+                sendCmd('get_params');
+            }, 800);
             
+            // PRIORITAS 2: Tunda Telemetry. Jangan biarkan telemetry jalan barengan sama get_params biar gak tabrakan di STM32
             if(telemetryTimer) clearInterval(telemetryTimer);
-            telemetryTimer = setInterval(() => sendCmd('telemetry'), 300);
+            setTimeout(() => {
+                telemetryTimer = setInterval(() => sendCmd('telemetry'), 300);
+            }, 2000); // Telemetry baru jalan setelah 2 detik
         }
         
         function setDisconnected() {
@@ -428,6 +432,7 @@
                 try {
                     let data = JSON.parse(line);
                     
+                    // CEK DATA TELEMETRY (Ada vbat)
                     if (data.vbat !== undefined) {
                         currentRoda = data.roda;
                         currentStir = data.stir;
@@ -439,19 +444,31 @@
                         document.getElementById('set-live-roda').innerText = currentRoda;
                         document.getElementById('set-live-stir').innerText = currentStir;
                     } 
-                    else if (data.lk !== undefined) {
-                        ['lk','rk','mid','dz','spm','sta','bel','ac','acc','man','pk','pr','zgp','dzm','stt'].forEach(k => {
-                            if(document.getElementById('p_'+k)) {
-                                document.getElementById('p_'+k).value = data[k];
-                                // Sinkronkan nilai speed slider saat terima data dari STM32
+                    else {
+                        // JIKA BUKAN TELEMETRY, KEMUNGKINAN INI BALASAN GET_PARAMS
+                        let isParamUpdated = false;
+                        let paramKeys = ['lk','rk','mid','dz','spm','sta','bel','ac','acc','man','pk','pr','zgp','dzm','stt'];
+                        
+                        paramKeys.forEach(k => {
+                            if (data[k] !== undefined) {
+                                isParamUpdated = true;
+                                
+                                // Update textbox di Settings
+                                if(document.getElementById('p_'+k)) {
+                                    document.getElementById('p_'+k).value = data[k];
+                                }
+                                
+                                // Spesial untuk SPM: Update juga Slider Kecepatan di tab Remote!
                                 if(k === 'spm') {
                                     document.getElementById('pwm-slider').value = data[k];
                                     document.getElementById('spd-val').innerText = data[k];
                                 }
                             }
                         });
-                        // Mengganti alert dengan toast notification
-                        showToast("Parameter berhasil disinkronisasi!", "success");
+
+                        if(isParamUpdated) {
+                            showToast("Parameter lengkap berhasil dimuat!", "success");
+                        }
                     }
                 } catch (e) {
                     console.error("Gagal parsing JSON: ", line);
@@ -462,7 +479,6 @@
                 showToast(line, "error");
             } 
             else if (line.startsWith("OK:SETTINGS_SAVED")) {
-                // Mengganti alert dengan toast notification
                 showToast("Parameter Tersimpan Permanen di STM32!", "success");
             }
         }
