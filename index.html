@@ -136,30 +136,30 @@
 
         <div id="theme-jog" class="jog-wrapper">
             <div class="jog-grid">
-                <button class="jog-btn" data-d="maju" data-s="kiri">↖</button>
-                <button class="jog-btn" data-d="maju" data-s="">↑</button>
-                <button class="jog-btn" data-d="maju" data-s="kanan">↗</button>
+                <button class="jog-btn" data-d="F" data-s="L">↖</button>
+                <button class="jog-btn" data-d="F" data-s="">↑</button>
+                <button class="jog-btn" data-d="F" data-s="R">↗</button>
 
-                <button class="jog-btn" data-d="" data-s="kiri">←</button>
-                <button class="jog-btn stop" data-d="release_drive" data-s="release_steer">STOP</button>
-                <button class="jog-btn" data-d="" data-s="kanan">→</button>
+                <button class="jog-btn" data-d="" data-s="L">←</button>
+                <button class="jog-btn stop" data-d="S" data-s="C">STOP</button>
+                <button class="jog-btn" data-d="" data-s="R">→</button>
 
-                <button class="jog-btn" data-d="mundur" data-s="kiri">↙</button>
-                <button class="jog-btn" data-d="mundur" data-s="">↓</button>
-                <button class="jog-btn" data-d="mundur" data-s="kanan">↘</button>
+                <button class="jog-btn" data-d="B" data-s="L">↙</button>
+                <button class="jog-btn" data-d="B" data-s="">↓</button>
+                <button class="jog-btn" data-d="B" data-s="R">↘</button>
             </div>
             <p style="color:#666; font-size:14px; margin-top:20px;">Mode kendali ala Mesin CNC</p>
         </div>
 
         <div id="theme-buttons" class="split-controls">
             <div class="control-group">
-                <button class="btn-drive" data-cmd="maju" data-release="release_drive">▲ Maju</button>
-                <button class="btn-drive" data-cmd="mundur" data-release="release_drive">▼ Mundur</button>
+                <button class="btn-drive" data-cmd="F" data-release="S">▲ Maju</button>
+                <button class="btn-drive" data-cmd="B" data-release="S">▼ Mundur</button>
             </div>
             
             <div class="control-group row">
-                <button class="btn-steer" data-cmd="kiri" data-release="release_steer">◄ Kiri</button>
-                <button class="btn-steer" data-cmd="kanan" data-release="release_steer">Kanan ►</button>
+                <button class="btn-steer" data-cmd="L" data-release="C">◄ Kiri</button>
+                <button class="btn-steer" data-cmd="R" data-release="C">Kanan ►</button>
             </div>
         </div>
 
@@ -263,7 +263,7 @@
             clearTimeout(toastTimeout);
             toastTimeout = setTimeout(() => { 
                 toast.className = toast.className.replace("show", ""); 
-            }, 3000); // Hilang setelah 3 detik
+            }, 3000); 
         }
 
         // ==== WEB BLUETOOTH CORE ====
@@ -348,7 +348,8 @@
         
         function sendCmd(cmd) {
             if (!bleChar) return;
-            if (cmd === 'telemetry' && commandQueue.includes('telemetry')) return;
+            // Cegah command kembar di queue (sekarang pakai 'T' buat telemetry)
+            if (cmd === 'T' && commandQueue.includes('T')) return;
             if (cmd === 'get_params' && commandQueue.includes('get_params')) return;
             
             commandQueue.push(cmd);
@@ -412,7 +413,7 @@
                 if (!paramsLoaded) {
                     sendCmd('get_params');
                 } else {
-                    sendCmd('telemetry');
+                    sendCmd('T'); // Kirim Command "T" sesuai STM32 baru
                 }
             }, 400);
         }
@@ -435,11 +436,12 @@
                 try {
                     let data = JSON.parse(line);
                     
-                    if (data.vbat !== undefined) {
-                        currentRoda = data.roda;
-                        currentStir = data.stir;
+                    // Cek berdasarkan singkatan baru dari STM32 ('v', 'r', 's')
+                    if (data.v !== undefined) {
+                        currentRoda = data.r;
+                        currentStir = data.s;
         
-                        document.getElementById('tel-vbat').innerText = data.vbat.toFixed(1) + "V";
+                        document.getElementById('tel-vbat').innerText = data.v.toFixed(1) + "V";
                         document.getElementById('tel-roda').innerText = currentRoda;
                         document.getElementById('tel-stir').innerText = currentStir;
         
@@ -474,11 +476,11 @@
                     console.error("Gagal parsing JSON: ", line);
                 }
             } 
-            else if (line.startsWith("WARNING:")) {
+            else if (line.startsWith("WARN:")) { // Update ke 'WARN:' ngikut STM32 terbaru
                 log(line); if(navigator.vibrate) navigator.vibrate([200, 100, 200]);
                 showToast(line, "error");
             } 
-            else if (line.startsWith("OK:SETTINGS_SAVED")) {
+            else if (line.startsWith("OK:SAVED")) { // Update ke 'OK:SAVED' ngikut STM32
                 showToast("Parameter Tersimpan Permanen di STM32!", "success");
             }
         }
@@ -512,35 +514,30 @@
         
         // ==== FUNGSI SIMPAN PARAMETER + VALIDASI ====
         function saveParams() {
-            // Validasi: Speed PWM Max (spm) -> min 5, max 250
             let spm = parseInt(document.getElementById('p_spm').value);
             if (isNaN(spm) || spm < 5 || spm > 250) {
                 showToast("Gagal: Speed PWM Max (spm) harus di antara 5 - 250!", "error");
-                return; // Stop proses simpan
+                return;
             }
 
-            // Validasi: Tenaga Belok PWM (bel) -> min 5, max 250
             let bel = parseInt(document.getElementById('p_bel').value);
             if (isNaN(bel) || bel < 5 || bel > 250) {
                 showToast("Gagal: Tenaga Belok PWM (bel) harus di antara 5 - 250!", "error");
                 return;
             }
 
-            // Validasi: Start PWM Hentakan (sta) -> min 1, max 100
             let sta = parseInt(document.getElementById('p_sta').value);
             if (isNaN(sta) || sta < 1 || sta > 100) {
                 showToast("Gagal: Start PWM Hentakan (sta) harus di antara 1 - 100!", "error");
                 return;
             }
 
-            // Validasi: Waktu Akselerasi (acc) -> min 1, max 5000
             let acc = parseInt(document.getElementById('p_acc').value);
             if (isNaN(acc) || acc < 1 || acc > 5000) {
                 showToast("Gagal: Waktu Akselerasi ms (acc) harus di antara 1 - 5000!", "error");
                 return;
             }
 
-            // Kalau lolos semua validasi di atas, lanjut simpan!
             showToast("Menyimpan ke STM32...", "info");
             let p = ['lk','rk','mid','dz','spm','sta','bel','ac','acc','man','pk','pr','zgp','dzm','stt']
                 .map(k => `${k}=${document.getElementById('p_'+k).value}`).join(',');
@@ -584,18 +581,18 @@
         jogBtns.forEach(btn => {
             const press = (e) => {
                 e.preventDefault();
-                if(btn.dataset.d && btn.dataset.d !== "release_drive") sendCmd(btn.dataset.d);
-                if(btn.dataset.s && btn.dataset.s !== "release_steer") sendCmd(btn.dataset.s);
+                if(btn.dataset.d && btn.dataset.d !== "S") sendCmd(btn.dataset.d);
+                if(btn.dataset.s && btn.dataset.s !== "C") sendCmd(btn.dataset.s);
                 if(btn.classList.contains('stop')) {
-                    sendCmd("release_drive");
-                    sendCmd("release_steer");
+                    sendCmd("S");
+                    sendCmd("C");
                 }
             };
             const release = (e) => {
                 e.preventDefault();
                 if(!btn.classList.contains('stop')) {
-                    if(btn.dataset.d) sendCmd("release_drive");
-                    if(btn.dataset.s) sendCmd("release_steer");
+                    if(btn.dataset.d) sendCmd("S");
+                    if(btn.dataset.s) sendCmd("C");
                 }
             };
             btn.addEventListener('mousedown', press);
@@ -611,8 +608,8 @@
         let jDragging = false;
         let baseRect;
         
-        let lastJoyDrive = "release_drive";
-        let lastJoySteer = "release_steer";
+        let lastJoyDrive = "S";
+        let lastJoySteer = "C";
         
         function startJoy(e) {
             jDragging = true;
@@ -645,14 +642,14 @@
             let normX = stickX / maxRadius;
             let normY = stickY / maxRadius;
             
-            let curDrive = "release_drive";
-            let curSteer = "release_steer";
+            let curDrive = "S";
+            let curSteer = "C";
         
-            if (normY < -0.3) curDrive = "maju";
-            else if (normY > 0.3) curDrive = "mundur";
+            if (normY < -0.3) curDrive = "F";
+            else if (normY > 0.3) curDrive = "B";
         
-            if (normX < -0.3) curSteer = "kiri";  
-            else if (normX > 0.3) curSteer = "kanan"; 
+            if (normX < -0.3) curSteer = "L";  
+            else if (normX > 0.3) curSteer = "R"; 
         
             if (curDrive !== lastJoyDrive) { lastJoyDrive = curDrive; sendCmd(curDrive); }
             if (curSteer !== lastJoySteer) { lastJoySteer = curSteer; sendCmd(curSteer); }
@@ -663,8 +660,8 @@
             jStick.style.transition = "transform 0.2s";
             jStick.style.transform = `translate(0px, 0px)`; 
         
-            if (lastJoyDrive !== "release_drive") { lastJoyDrive = "release_drive"; sendCmd("release_drive"); }
-            if (lastJoySteer !== "release_steer") { lastJoySteer = "release_steer"; sendCmd("release_steer"); }
+            if (lastJoyDrive !== "S") { lastJoyDrive = "S"; sendCmd("S"); }
+            if (lastJoySteer !== "C") { lastJoySteer = "C"; sendCmd("C"); }
         }
         
         jBase.addEventListener('mousedown', startJoy);
