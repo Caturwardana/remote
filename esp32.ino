@@ -195,6 +195,7 @@ bool connectToServer() {
 }
 
 void setup() {
+    setCpuFrequencyMhz(80);
     Serial.begin(115200);
     
     // --- LED SETUP (ACTIVE HIGH) ---
