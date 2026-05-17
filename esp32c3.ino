@@ -31,12 +31,26 @@ String lastDriveState = "S";
 String lastSteerState = "C";
 
 bool vFwd = false, vBwd = false, vLft = false, vRgt = false;
-
-// 🔥 VARIABEL BARU UNTUK AUTO-RECONNECT
 int pingFailCount = 0; 
 
+// 🔥 VARIABEL MODE SETTING
+bool isSettingMode = false;
+unsigned long allBtnHoldTimer = 0;
+bool allBtnTimingActive = false;
+
+int valSpm = 80;  // Akan di-override oleh get_params dari STM32
+int valBel = 150; // Akan di-override oleh get_params dari STM32
+
+bool lastBtnFwd = false;
+bool lastBtnBwd = false;
+bool lastBtnLft = false;
+bool lastBtnRgt = false;
+
+// Buffer untuk menerima data panjang dari STM32 via BLE
+String bleBuffer = "";
+
 // ======================
-// 3. DEBOUNCE TOMBOL
+// 3. DEBOUNCE TOMBOL & SERIAL PRINT
 // ======================
 struct Button {
     uint8_t pin;
@@ -50,11 +64,30 @@ Button btnBwd = {BTN_BACKWARD, false, false, 0};
 Button btnLft = {BTN_LEFT, false, false, 0};
 Button btnRgt = {BTN_RIGHT, false, false, 0};
 
-void readButton(Button &b, unsigned long currentMillis) {
-    bool reading = (digitalRead(b.pin) == LOW);
-    if (reading != b.lastReading) b.lastDebounceTime = currentMillis;
+// Tambah parameter btnName untuk print ke Serial Monitor
+void readButton(Button &b, unsigned long currentMillis, const char* btnName) {
+    // Membaca tombol (LOW = ditekan karena pakai INPUT_PULLUP)
+    bool reading = (digitalRead(b.pin) == LOW); 
+    
+    if (reading != b.lastReading) {
+        b.lastDebounceTime = currentMillis;
+    }
+    
     if ((currentMillis - b.lastDebounceTime) > 50) {
-        if (reading != b.state) b.state = reading;
+        if (reading != b.state) {
+            b.state = reading;
+            
+            // --- OUTPUT SERIAL SETIAP ADA PERUBAHAN TOMBOL ---
+            if (b.state) {
+                Serial.print("[TOMBOL] ");
+                Serial.print(btnName);
+                Serial.println(" Ditekan! (Pin LOW)");
+            } else {
+                Serial.print("[TOMBOL] ");
+                Serial.print(btnName);
+                Serial.println(" Dilepas (Pin HIGH)");
+            }
+        }
     }
     b.lastReading = reading;
 }
@@ -65,24 +98,18 @@ void readButton(Button &b, unsigned long currentMillis) {
 void sendCommand(String cmd) {
     if (connected && pRemoteChar) {
         String payload = cmd + "\n"; 
-        
-        // Wajib 'true' agar kita tau pesannya sampai atau tidak
         bool success = pRemoteChar->writeValue(payload.c_str(), payload.length(), true);
         
         if (!success) {
-            // Jika gagal kirim, catat kesalahannya
             pingFailCount++;
             if (pingFailCount >= 3) {
                 Serial.println("[SYSTEM] Mobil tidak merespon (Mati/Putus). Memaksa Reconnect!");
                 connected = false;
-                if (pClient) pClient->disconnect(); // Paksa putus dari sisi ESP32
-                pingFailCount = 0; // Reset counter
+                if (pClient) pClient->disconnect();
+                pingFailCount = 0; 
             }
         } else {
-            // Jika sukses kirim, reset counter karena koneksi berarti sehat
             pingFailCount = 0; 
-            
-            // Print log hanya untuk perintah selain Ping agar rapi
             if(cmd != "P") { 
                 Serial.print("[TX] -> "); 
                 Serial.println(cmd);
@@ -92,13 +119,45 @@ void sendCommand(String cmd) {
 }
 
 // ======================
-// 5. CALLBACK & KONEKSI
+// 5. CALLBACK TERIMA DATA & KONEKSI
 // ======================
+void notifyCallback(NimBLERemoteCharacteristic* pBLERemoteCharacteristic, uint8_t* pData, size_t length, bool isNotify) {
+    for (int i = 0; i < length; i++) {
+        char c = (char)pData[i];
+        if (c == '\n' || c == '\r') {
+            if (bleBuffer.length() > 0) {
+                int idxSpm = bleBuffer.indexOf("\"spm\":");
+                if (idxSpm != -1) {
+                    int endSpm = bleBuffer.indexOf(',', idxSpm);
+                    valSpm = bleBuffer.substring(idxSpm + 6, endSpm).toInt();
+                }
+
+                int idxBel = bleBuffer.indexOf("\"bel\":");
+                if (idxBel != -1) {
+                    int endBel = bleBuffer.indexOf(',', idxBel);
+                    valBel = bleBuffer.substring(idxBel + 6, endBel).toInt();
+                }
+
+                if (idxSpm != -1 || idxBel != -1) {
+                    Serial.println("\n[BLE] Sync Parameter dari STM32 BERHASIL!");
+                    Serial.println(">>> Start Drive PWM (SPM): " + String(valSpm));
+                    Serial.println(">>> Start Belok PWM (BEL): " + String(valBel) + "\n");
+                }
+                
+                bleBuffer = ""; 
+            }
+        } else {
+            bleBuffer += c;
+        }
+    }
+}
+
 class MyClientCallbacks : public NimBLEClientCallbacks {
     void onConnect(NimBLEClient* pClient) { Serial.println(">>> Terkoneksi!"); }
     void onDisconnect(NimBLEClient* pClient) {
         connected = false;
         pingFailCount = 0;
+        isSettingMode = false;
         digitalWrite(PIN_LED, HIGH); // MATI (Active Low)
         Serial.println(">>> Terputus (Callback)!");
     }
@@ -111,7 +170,6 @@ bool connectToServer() {
         pClient->setClientCallbacks(new MyClientCallbacks(), false);
     }
     
-    // Pastikan status client bersih sebelum menyambung ulang
     if (pClient->isConnected()) pClient->disconnect();
     
     if (!pClient->connect(serverAddress)) {
@@ -125,8 +183,12 @@ bool connectToServer() {
     pRemoteChar = pService->getCharacteristic(CHARACTERISTIC_UUID);
     if (!pRemoteChar) { pClient->disconnect(); return false; }
 
+    if(pRemoteChar->canNotify()) {
+        pRemoteChar->subscribe(true, notifyCallback);
+    }
+
     connected = true;
-    pingFailCount = 0; // Reset watchdog saat sukses konek
+    pingFailCount = 0; 
     digitalWrite(PIN_LED, LOW); // NYALA (Active Low)
     Serial.println(">>> SIAP! (Ketik w, a, s, d, atau x untuk REM/STOP)");
     return true;
@@ -134,8 +196,10 @@ bool connectToServer() {
 
 void setup() {
     Serial.begin(115200);
+    
+    // --- LED SETUP (ACTIVE LOW) ---
     pinMode(PIN_LED, OUTPUT);
-    digitalWrite(PIN_LED, HIGH);
+    digitalWrite(PIN_LED, HIGH); // Awal mula matikan LED (HIGH = Mati)
 
     pinMode(BTN_FORWARD, INPUT_PULLUP);
     pinMode(BTN_BACKWARD, INPUT_PULLUP);
@@ -149,71 +213,138 @@ void setup() {
 void loop() {
     unsigned long currentMillis = millis();
 
-    // --- 1. LOGIKA LED & RECONNECT ---
+    // --- 1. LOGIKA LED INDIKATOR (ACTIVE LOW) ---
     if (!connected) {
-        // Kedip cepat menandakan sedang mencari koneksi
+        // Kedip normal (200ms) cari koneksi
         if (currentMillis - lastBlinkTime >= 200) {
             lastBlinkTime = currentMillis;
             ledState = !ledState;
-            digitalWrite(PIN_LED, ledState ? LOW : HIGH);
+            digitalWrite(PIN_LED, ledState ? LOW : HIGH); // Nyala-Mati bergantian
         }
-        // Coba konek ulang setiap 5 detik
         if (currentMillis - lastReconTime >= 5000) {
             lastReconTime = currentMillis;
             connectToServer();
         }
+    } else if (isSettingMode) {
+        // Kedip CEPAT (80ms) Mode Setting
+        if (currentMillis - lastBlinkTime >= 80) {
+            lastBlinkTime = currentMillis;
+            ledState = !ledState;
+            digitalWrite(PIN_LED, ledState ? LOW : HIGH); // Nyala-Mati bergantian
+        }
     } else {
-        digitalWrite(PIN_LED, LOW); // Nyala Solid kalau konek
+        // Mode normal terkoneksi menyala solid LOW
+        digitalWrite(PIN_LED, LOW); 
     }
 
     // --- 2. LOGIKA KONTROL (Setiap 15ms) ---
-    if (currentMillis - lastLoopTime >= 15) {
+    if (connected && (currentMillis - lastLoopTime >= 15)) {
         lastLoopTime = currentMillis;
 
+        // Cek Serial Monitor WASD
         while (Serial.available() > 0) {
             char c = Serial.read();
-            if (c == 'W') { vFwd = true; vBwd = false; } 
-            else if (c == 'w') { vFwd = false; }
-            if (c == 'S') { vBwd = true; vFwd = false; } 
-            else if (c == 's') { vBwd = false; }
-            if (c == 'A') { vLft = true; vRgt = false; } 
-            else if (c == 'a') { vLft = false; }
-            if (c == 'D') { vRgt = true; vLft = false; } 
-            else if (c == 'd') { vRgt = false; }
+            if (c == 'W') { vFwd = true; vBwd = false; } else if (c == 'w') { vFwd = false; }
+            if (c == 'S') { vBwd = true; vFwd = false; } else if (c == 's') { vBwd = false; }
+            if (c == 'A') { vLft = true; vRgt = false; } else if (c == 'a') { vLft = false; }
+            if (c == 'D') { vRgt = true; vLft = false; } else if (c == 'd') { vRgt = false; }
             if (c == 'x' || c == 'X') { 
                 vFwd=vBwd=vLft=vRgt=false; 
                 Serial.println("[SYSTEM] X ditekan -> REM DARURAT!");
             } 
         }
 
-        readButton(btnFwd, currentMillis);
-        readButton(btnBwd, currentMillis);
-        readButton(btnLft, currentMillis);
-        readButton(btnRgt, currentMillis);
+        // BACA TOMBOL DENGAN NAMA (Untuk Serial Monitor)
+        readButton(btnFwd, currentMillis, "MAJU");
+        readButton(btnBwd, currentMillis, "MUNDUR");
+        readButton(btnLft, currentMillis, "KIRI");
+        readButton(btnRgt, currentMillis, "KANAN");
 
-        bool isFwd = btnFwd.state || vFwd;
-        bool isBwd = btnBwd.state || vBwd;
-        bool isLft = btnLft.state || vLft;
-        bool isRgt = btnRgt.state || vRgt;
-
-        String targetDrive = "S"; 
-        String targetSteer = "C"; 
-
-        if (isFwd && !isBwd) targetDrive = "F";      
-        else if (isBwd && !isFwd) targetDrive = "B"; 
-
-        if (isLft && !isRgt) targetSteer = "L";      
-        else if (isRgt && !isLft) targetSteer = "R"; 
-
-        if (targetDrive != lastDriveState) {
-            sendCommand(targetDrive);
-            lastDriveState = targetDrive;
+        // --- DETEKSI 4 TOMBOL DITEKAN BERSAMAAN ---
+        if (btnFwd.state && btnBwd.state && btnLft.state && btnRgt.state) {
+            if (!allBtnTimingActive) {
+                allBtnTimingActive = true;
+                allBtnHoldTimer = currentMillis;
+            } else if (currentMillis - allBtnHoldTimer >= 2000) {
+                isSettingMode = !isSettingMode; 
+                allBtnTimingActive = false;
+                
+                if (isSettingMode) {
+                    Serial.println("\n[SYSTEM] MASUK MODE SETTING!");
+                    // Paksa berhenti dulu
+                    sendCommand("S");
+                    sendCommand("C");
+                    lastDriveState = "S";
+                    lastSteerState = "C";
+                    
+                    // Request parameter saat ini ke STM32
+                    sendCommand("get_params"); 
+                } else {
+                    Serial.println("\n[SYSTEM] KELUAR MODE SETTING. Kembali ke Remote Biasa.");
+                    digitalWrite(PIN_LED, LOW); // Kembalikan LED jadi solid LOW saat keluar setting
+                }
+                
+                delay(500); // Debounce pas ganti mode
+            }
+        } else {
+            allBtnTimingActive = false;
         }
 
-        if (targetSteer != lastSteerState) {
-            sendCommand(targetSteer);
-            lastSteerState = targetSteer;
+        // --- CABANG LOGIKA: SETTING VS NORMAL ---
+        if (isSettingMode) {
+            // Mode Setting: Deteksi klik (Edge Detection)
+            if (btnFwd.state && !lastBtnFwd) { 
+                valSpm += 10; if(valSpm > 250) valSpm = 250;
+                sendCommand("set_params:spm=" + String(valSpm)); 
+                Serial.println("[SETTING] Drive PWM +10  -> SPM: " + String(valSpm));
+            }
+            if (btnBwd.state && !lastBtnBwd) { 
+                valSpm -= 10; if(valSpm < 40) valSpm = 40;
+                sendCommand("set_params:spm=" + String(valSpm)); 
+                Serial.println("[SETTING] Drive PWM -10  -> SPM: " + String(valSpm));
+            }
+            if (btnRgt.state && !lastBtnRgt) { 
+                valBel += 10; if(valBel > 250) valBel = 250;
+                sendCommand("set_params:bel=" + String(valBel)); 
+                Serial.println("[SETTING] Belok PWM +10 -> BEL: " + String(valBel));
+            }
+            if (btnLft.state && !lastBtnLft) { 
+                valBel -= 10; if(valBel < 30) valBel = 30;
+                sendCommand("set_params:bel=" + String(valBel)); 
+                Serial.println("[SETTING] Belok PWM -10 -> BEL: " + String(valBel));
+            }
+        } else {
+            // Mode Normal
+            bool isFwd = btnFwd.state || vFwd;
+            bool isBwd = btnBwd.state || vBwd;
+            bool isLft = btnLft.state || vLft;
+            bool isRgt = btnRgt.state || vRgt;
+
+            String targetDrive = "S"; 
+            String targetSteer = "C"; 
+
+            if (isFwd && !isBwd) targetDrive = "F";      
+            else if (isBwd && !isFwd) targetDrive = "B"; 
+
+            if (isLft && !isRgt) targetSteer = "L";      
+            else if (isRgt && !isLft) targetSteer = "R"; 
+
+            if (!allBtnTimingActive) {
+                if (targetDrive != lastDriveState) {
+                    sendCommand(targetDrive);
+                    lastDriveState = targetDrive;
+                }
+                if (targetSteer != lastSteerState) {
+                    sendCommand(targetSteer);
+                    lastSteerState = targetSteer;
+                }
+            }
         }
+
+        lastBtnFwd = btnFwd.state;
+        lastBtnBwd = btnBwd.state;
+        lastBtnLft = btnLft.state;
+        lastBtnRgt = btnRgt.state;
     }
 
     // --- 3. HEARTBEAT / WATCHDOG (Setiap 1.5 detik) ---
